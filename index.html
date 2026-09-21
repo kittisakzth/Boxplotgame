@@ -84,17 +84,36 @@
       q3Val = dataSorted[8];
       maxVal = dataSorted[10];
 
+      // การ์ดตัวเลขสำหรับด่าน 1 (สุ่มตำแหน่งวางกระจายด้านบน)
       cards = [];
       let shuffled = [...dataRaw].sort(() => Math.random() - 0.5);
       shuffled.forEach((val, i) => {
-        cards.push({ value: val, x: 80 + (i % 6) * 100, y: 110 + Math.floor(i / 6) * 85, w: 80, h: 70, isGrabbed: false });
+        cards.push({ 
+          value: val, 
+          x: 40 + (i % 6) * 105, 
+          y: 90 + Math.floor(i / 6) * 100, 
+          w: 85, 
+          h: 80, 
+          isGrabbed: false 
+        });
       });
 
+      // จัดวางช่องด่านที่ 1 เป็น 11 ช่องเรียงแนวนอนจากซ้ายไปขวา
       slots = [];
+      const slotWidth = 90;
+      const slotGap = 15;
+      const startX = 65; // คำนวณระยะห่างให้พอดีขอบกระจายเต็มหน้าจอ
       for(let i=0; i<NUM_DATA; i++) {
-        slots.push({ x: 80 + (i % 6) * 100, y: 380 + Math.floor(i / 6) * 95, w: 85, h: 75, filledVal: null });
+        slots.push({ 
+          x: startX + i * (slotWidth + slotGap), 
+          y: 450, 
+          w: slotWidth, 
+          h: 95, 
+          filledVal: null 
+        });
       }
 
+      // ป้ายด่านที่ 2
       tags = [
         { name: "Min", targetVal: minVal, x: 100, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
         { name: "Q1", targetVal: q1Val, x: 220, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
@@ -213,9 +232,10 @@
           const indexFinger = landmarks[8];
           const thumb = landmarks[4];
 
-          cx = (1 - indexFinger.x) * canvas.width;
+          // แก้ไขจุดนี้: ปรับทิศทางพิกัด X ของมือให้ตรงตามทิศทางหน้าจอ ไม่สลับซ้าย-ขวา
+          cx = indexFinger.x * canvas.width;
           cy = indexFinger.y * canvas.height;
-          const tx = (1 - thumb.x) * canvas.width;
+          const tx = thumb.x * canvas.width;
           const ty = thumb.y * canvas.height;
 
           if (Math.hypot(cx - tx, cy - ty) < 40) isPinching = true;
@@ -226,14 +246,15 @@
       let timeLeft = Math.max(0, timeLimit - elapsed);
 
       if (stage === 1) {
-        drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก`, 40, 40, 32);
+        drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก (จากซ้ายไปขวา)`, 40, 40, 32);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
 
+        // วาดช่องทั้ง 11 ช่องเรียงเป็นแนวยาวจากซ้ายไปขวา
         slots.forEach((s, i) => {
           ctx.strokeStyle = s.filledVal !== null ? "#64FF64" : "#B4B4B4";
           ctx.lineWidth = 2;
           ctx.strokeRect(s.x, s.y, s.w, s.h);
-          drawText(`#${i+1}`, s.x + 5, s.y - 10, 18, "#CCCCCC");
+          drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 18, "#CCCCCC", "center");
         });
 
         cards.forEach(card => {
@@ -246,7 +267,9 @@
           }
 
           slots.forEach(slot => {
-            if (checkOverlap(card.x + 35, card.y + 35, slot.x, slot.y, slot.w, slot.h)) slot.filledVal = card.value;
+            if (checkOverlap(card.x + card.w/2, card.y + card.h/2, slot.x, slot.y, slot.w, slot.h)) {
+              slot.filledVal = card.value;
+            }
           });
 
           drawButton(card.value.toString(), card.x, card.y, card.w, card.h, "#FFC864");
@@ -259,7 +282,7 @@
             stage = 2;
             startTime = Date.now();
           } else {
-            drawText("เรียงลำดับไม่ถูกต้อง! ลองใหม่อีกครั้ง", 450, 670, 30, "#FF3333");
+            drawText("เรียงลำดับไม่ถูกต้อง! ลองใหม่อีกครั้ง", 640, 670, 30, "#FF3333", "center");
           }
         }
       } else if (stage === 2) {
@@ -267,8 +290,8 @@
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
 
         dataSorted.forEach((val, i) => {
-          let x = 80 + (i % 6) * 100, y = 380 + Math.floor(i / 6) * 95;
-          drawButton(val.toString(), x, y, 85, 75, "#C8FFC8");
+          let x = 65 + i * 105, y = 380;
+          drawButton(val.toString(), x, y, 90, 85, "#C8FFC8");
         });
 
         let correctCount = 0;
@@ -283,12 +306,12 @@
             }
 
             dataSorted.forEach((val, i) => {
-              let tx = 80 + (i % 6) * 100, ty = 380 + Math.floor(i / 6) * 95;
-              if (checkOverlap(tag.x + 40, tag.y + 25, tx, ty, 85, 75)) {
+              let tx = 65 + i * 105, ty = 380;
+              if (checkOverlap(tag.x + 40, tag.y + 25, tx, ty, 90, 85)) {
                 if (tag.targetVal === val) {
                   tag.isPlaced = true;
                   tag.x = tx;
-                  tag.y = ty - 45;
+                  tag.y = ty - 55;
                   score += 100;
                 }
               }
@@ -376,7 +399,7 @@
             }
           }
         }
-        drawText("ใช้นิ้วชี้แตะเลือกตัวเลือก ก) หรือ ข) บนหน้าจอ", 440, 620, 26, "#CCCCCC");
+        drawText("ใช้นิ้วชี้แตะเลือกตัวเลือก ก) หรือ ข) บนหน้าจอ", 640, 630, 26, "#CCCCCC", "center");
       } else if (stage === 4) {
         ctx.fillStyle = "rgba(0,0,0,0.85)";
         ctx.fillRect(200, 150, 880, 420);
