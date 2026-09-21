@@ -68,6 +68,7 @@
     let hands = null;
     let camera = null;
     let cx = -1, cy = -1, isPinching = false;
+    let wasPinching = false; // ตรวจสอบว่าเฟรมก่อนหน้านี้จีบนิ้วอยู่หรือไม่
 
     const NUM_DATA = 11;
     let stage = 1, quizStep = 1, score = 0;
@@ -250,12 +251,14 @@
     }
 
     function drawBoxplot(start_x=200, start_y=110, width=880) {
+      // พื้นหลังแผนภาพ
       ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
       ctx.fillRect(start_x - 40, start_y - 20, width + 80, 130);
       ctx.strokeStyle = "#333333";
       ctx.lineWidth = 3;
       ctx.strokeRect(start_x - 40, start_y - 20, width + 80, 130);
 
+      // เส้นแกนตัวเลข (Number Line)
       const lineY = start_y + 70;
       ctx.beginPath();
       ctx.moveTo(start_x, lineY); ctx.lineTo(start_x + width, lineY);
@@ -263,6 +266,7 @@
 
       const valToX = v => start_x + ((v - 1) / 19.0) * width;
 
+      // ขีดสเกลตัวเลข 1-20
       for (let v = 1; v <= 20; v++) {
         let vx = valToX(v);
         ctx.beginPath(); ctx.moveTo(vx, lineY - 6); ctx.lineTo(vx, lineY + 6);
@@ -270,23 +274,28 @@
         if (v % 2 !== 0 || v === 20) drawText(v.toString(), vx, lineY + 30, 20, "#000000", "center");
       }
 
+      // พิกัด X ของค่าสถิติทั้ง 5 ตัว
       let xMin = valToX(minVal), xQ1 = valToX(q1Val), xQ2 = valToX(q2Val), xQ3 = valToX(q3Val), xMax = valToX(maxVal);
       let boxY = start_y + 10, boxH = 40;
       let midY = boxY + boxH / 2;
 
+      // 1. วาดเส้นวิสเกอร์ (Whiskers - 2 ด้าน)
       ctx.beginPath();
-      ctx.moveTo(xMin, midY); ctx.lineTo(xQ1, midY);
-      ctx.moveTo(xQ3, midY); ctx.lineTo(xMax, midY);
+      ctx.moveTo(xMin, midY); ctx.lineTo(xQ1, midY); // วิสเกอร์ซ้าย (Min ถึง Q1)
+      ctx.moveTo(xQ3, midY); ctx.lineTo(xMax, midY); // วิสเกอร์ขวา (Q3 ถึง Max)
       ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
 
+      // 2. วาดขีดแนวตั้งปิดหัว-ท้ายของวิสเกอร์ (Min และ Max)
       ctx.beginPath();
-      ctx.moveTo(xMin, boxY + 8); ctx.lineTo(xMin, boxY + boxH - 8);
-      ctx.moveTo(xMax, boxY + 8); ctx.lineTo(xMax, boxY + boxH - 8);
+      ctx.moveTo(xMin, boxY + 8); ctx.lineTo(xMin, boxY + boxH - 8); // ขีด Min
+      ctx.moveTo(xMax, boxY + 8); ctx.lineTo(xMax, boxY + boxH - 8); // ขีด Max
       ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
 
+      // 3. วาดตัวกล่อง (Box: Q1 ถึง Q3)
       ctx.fillStyle = "#FFE066"; ctx.fillRect(xQ1, boxY, xQ3 - xQ1, boxH);
       ctx.strokeStyle = "#0055B8"; ctx.lineWidth = 4; ctx.strokeRect(xQ1, boxY, xQ3 - xQ1, boxH);
 
+      // 4. วาดเส้นมัธยฐาน (Q2 / Median)
       ctx.beginPath(); ctx.moveTo(xQ2, boxY); ctx.lineTo(xQ2, boxY + boxH);
       ctx.strokeStyle = "#CC0000"; ctx.lineWidth = 5; ctx.stroke();
     }
@@ -370,7 +379,8 @@
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.restore();
 
-      cx = -1; cy = -1; isPinching = false;
+      cx = -1; cy = -1; 
+      let currentlyPinching = false;
 
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         initAudio();
@@ -383,8 +393,13 @@
 
         let dist = Math.hypot(cx - tx, cy - ty);
         let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed) || checkmark.isGrabbed;
-        if (dist < (currentlyHolding ? 75 : 45)) isPinching = true;
+        if (dist < (currentlyHolding ? 75 : 55)) currentlyPinching = true;
       }
+
+      // ตรวจจับจังหวะ "เริ่มจีบนิ้ว" (Just Pinched)
+      let justPinched = currentlyPinching && !wasPinching;
+      isPinching = currentlyPinching;
+      wasPinching = currentlyPinching;
 
       let elapsed = Math.floor((Date.now() - startTime) / 1000);
       let timeLeft = Math.max(0, timeLimit - elapsed);
@@ -538,9 +553,9 @@
             { id: 3, x: 700, y: 410, w: 400, h: 70, choice: quizOptions.choices[3] }
           ];
 
-          let confirmBtn = { x: 500, y: 500, w: 280, h: 65 };
+          let confirmBtn = { x: 480, y: 495, w: 320, h: 75 };
 
-          // ตรวจสอบการลากเครื่องหมายถูกเพื่อเลือกคำตอบ
+          // ลากเครื่องหมายถูกเพื่อเลือกคำตอบ
           if (isPinching) {
             if (!checkmark.isGrabbed && checkOverlap(cx, cy, checkmark.x, checkmark.y, checkmark.w, checkmark.h)) {
               checkmark.isGrabbed = true;
@@ -562,29 +577,33 @@
             }
           }
 
-          // ตรวจจับการ "ทำท่าจับ (Pinch)" บนปุ่มยืนยันคำตอบ
-          let isPinchingOnConfirm = isPinching && !checkmark.isGrabbed && checkOverlap(cx, cy, confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
+          // ตรวจสอบการทำท่าจีบนิ้ว (Just Pinched) เหนือปุ่มยืนยันคำตอบ
+          let isHoverConfirm = cx !== -1 && cy !== -1 && checkOverlap(cx, cy, confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
           
-          if (isPinchingOnConfirm && selectedChoiceIndex !== null) {
-            let chosen = choiceBoxes[selectedChoiceIndex].choice;
-            if (chosen.isCorrect) {
-              let answerTimeSec = (Date.now() - quizStartTime) / 1000;
-              let speedBonus = Math.max(0, Math.floor((30 - answerTimeSec) * 20));
-              let gainedScore = 300 + speedBonus;
+          if (justPinched && isHoverConfirm && !checkmark.isGrabbed) {
+            if (selectedChoiceIndex !== null) {
+              let chosen = choiceBoxes[selectedChoiceIndex].choice;
+              if (chosen.isCorrect) {
+                let answerTimeSec = (Date.now() - quizStartTime) / 1000;
+                let speedBonus = Math.max(0, Math.floor((30 - answerTimeSec) * 20));
+                let gainedScore = 300 + speedBonus;
 
-              score += gainedScore;
-              playSuccessSFX();
-              addFloatingScore(gainedScore, confirmBtn.x + confirmBtn.w/2, confirmBtn.y - 20);
-            }
-            quizStep++;
-            if (quizStep <= 3) {
-              quizOptions = generateQuizOptions();
+                score += gainedScore;
+                playSuccessSFX();
+                addFloatingScore(gainedScore, confirmBtn.x + confirmBtn.w/2, confirmBtn.y - 20);
+              }
+              quizStep++;
+              if (quizStep <= 3) {
+                quizOptions = generateQuizOptions();
+              } else {
+                stage = 4;
+              }
             } else {
-              stage = 4;
+              playGrabSFX();
             }
           }
 
-          // วาดกล่องตัวเลือก
+          // วาดตัวเลือก
           choiceBoxes.forEach((box, idx) => {
             let isSelected = selectedChoiceIndex === idx;
             drawCard(box.choice.text, box.x, box.y, box.w, box.h, isSelected ? "#FFE066" : "#E6F2FF", "#000000", 24);
@@ -608,11 +627,11 @@
 
           // วาดปุ่มยืนยันคำตอบ
           ctx.save();
-          let btnColor = selectedChoiceIndex === null ? "#777777" : (isPinchingOnConfirm ? "#00FF88" : "#00CC66");
-          ctx.fillStyle = btnColor;
+          let btnBgColor = selectedChoiceIndex === null ? "#777777" : (isHoverConfirm ? "#00FF88" : "#00CC66");
+          ctx.fillStyle = btnBgColor;
           ctx.fillRect(confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
-          ctx.strokeStyle = "#FFFFFF";
-          ctx.lineWidth = 4;
+          ctx.strokeStyle = isHoverConfirm ? "#FFFF00" : "#FFFFFF";
+          ctx.lineWidth = isHoverConfirm ? 6 : 4;
           ctx.strokeRect(confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
           drawText("ยืนยันคำตอบ", confirmBtn.x + confirmBtn.w/2, confirmBtn.y + confirmBtn.h/2 + 10, 26, "#FFFFFF", "center");
           ctx.restore();
@@ -632,7 +651,7 @@
           drawText("✓", checkmark.x + checkmark.w/2, checkmark.y + checkmark.h/2 + 18, 52, "#000000", "center");
           ctx.restore();
 
-          drawText("📌 ลาก ✓ ไปวางเพื่อเลือกข้อคำตอบ แล้วทำท่าจับ (Pinch) ที่ปุ่ม 'ยืนยันคำตอบ'", 640, 595, 22, "#E0E0E0", "center");
+          drawText("📌 ลาก ✓ ไปวางเลือกข้อ แล้วเลื่อนมือไปจีบนิ้ว (Pinch) ที่ปุ่ม 'ยืนยันคำตอบ'", 640, 595, 22, "#E0E0E0", "center");
         }
       } else if (stage === 4) {
         ctx.fillStyle = "rgba(0,0,0,0.85)";
