@@ -84,47 +84,53 @@
       q3Val = dataSorted[8];
       maxVal = dataSorted[10];
 
-      // การ์ดตัวเลขสำหรับด่าน 1 (สุ่มตำแหน่งวางกระจายด้านบน)
       cards = [];
       let shuffled = [...dataRaw].sort(() => Math.random() - 0.5);
       shuffled.forEach((val, i) => {
+        let startX = 40 + (i % 6) * 105;
+        let startY = 90 + Math.floor(i / 6) * 100;
         cards.push({ 
+          id: i,
           value: val, 
-          x: 40 + (i % 6) * 105, 
-          y: 90 + Math.floor(i / 6) * 100, 
+          x: startX, 
+          y: startY, 
+          initX: startX,
+          initY: startY,
           w: 85, 
           h: 80, 
-          isGrabbed: false 
+          isGrabbed: false,
+          placedSlotIndex: null
         });
       });
 
-      // จัดวางช่องด่านที่ 1 เป็น 11 ช่องเรียงแนวนอนจากซ้ายไปขวา
+      // จัดวางช่องด่านที่ 1 (เรียงจากซ้ายไปขวา #1 ถึง #11)
       slots = [];
       const slotWidth = 90;
       const slotGap = 15;
-      const startX = 65; // คำนวณระยะห่างให้พอดีขอบกระจายเต็มหน้าจอ
+      const startX = 65;
       for(let i=0; i<NUM_DATA; i++) {
         slots.push({ 
           x: startX + i * (slotWidth + slotGap), 
           y: 450, 
           w: slotWidth, 
           h: 95, 
+          cardId: null,
           filledVal: null 
         });
       }
 
-      // ป้ายด่านที่ 2
       tags = [
-        { name: "Min", targetVal: minVal, x: 100, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Q1", targetVal: q1Val, x: 220, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Q2", targetVal: q2Val, x: 340, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Q3", targetVal: q3Val, x: 460, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Max", targetVal: maxVal, x: 580, y: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false }
+        { name: "Min", targetVal: minVal, x: 100, y: 100, initX: 100, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
+        { name: "Q1", targetVal: q1Val, x: 220, y: 100, initX: 220, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
+        { name: "Q2", targetVal: q2Val, x: 340, y: 100, initX: 340, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
+        { name: "Q3", targetVal: q3Val, x: 460, y: 100, initX: 460, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
+        { name: "Max", targetVal: maxVal, x: 580, y: 100, initX: 580, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false }
       ].sort(() => Math.random() - 0.5);
     }
 
     generateCleanData();
 
+    // ฟังก์ชันวาดข้อความพร้อมกลับทิศแกน X เพื่อให้อ่านออกตรงตามปกติในกล้อง
     function drawText(text, x, y, size=28, color="#FFFFFF", align="left") {
       ctx.save();
       ctx.scale(-1, 1);
@@ -189,7 +195,7 @@
     async function initMediaPipe() {
       try {
         loadingText.innerText = "กำลังดาวน์โหลดระบบตรวจจับมือ (MediaPipe)...";
-        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js");
         handLandmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
@@ -232,13 +238,16 @@
           const indexFinger = landmarks[8];
           const thumb = landmarks[4];
 
-          // แก้ไขจุดนี้: ปรับทิศทางพิกัด X ของมือให้ตรงตามทิศทางหน้าจอ ไม่สลับซ้าย-ขวา
           cx = indexFinger.x * canvas.width;
           cy = indexFinger.y * canvas.height;
           const tx = thumb.x * canvas.width;
           const ty = thumb.y * canvas.height;
 
-          if (Math.hypot(cx - tx, cy - ty) < 40) isPinching = true;
+          let dist = Math.hypot(cx - tx, cy - ty);
+          let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed);
+          let threshold = currentlyHolding ? 75 : 45;
+
+          if (dist < threshold) isPinching = true;
         }
       }
 
@@ -249,30 +258,89 @@
         drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก (จากซ้ายไปขวา)`, 40, 40, 32);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
 
-        // วาดช่องทั้ง 11 ช่องเรียงเป็นแนวยาวจากซ้ายไปขวา
+        // วาดช่อง
         slots.forEach((s, i) => {
-          ctx.strokeStyle = s.filledVal !== null ? "#64FF64" : "#B4B4B4";
+          ctx.strokeStyle = s.cardId !== null ? "#64FF64" : "#B4B4B4";
           ctx.lineWidth = 2;
           ctx.strokeRect(s.x, s.y, s.w, s.h);
+          // ปรับการเรียงตัวเลขของช่องตรงตามตำแหน่งซ้ายไปขวา (#1 ถึง #11)
           drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 18, "#CCCCCC", "center");
         });
 
-        cards.forEach(card => {
-          if (isPinching && checkOverlap(cx, cy, card.x, card.y, card.w, card.h)) card.isGrabbed = true;
-          if (!isPinching) card.isGrabbed = false;
+        // ควบคุมการจับลากการ์ด
+        if (isPinching) {
+          let grabbedCard = cards.find(c => c.isGrabbed);
+          if (!grabbedCard) {
+            for (let i = cards.length - 1; i >= 0; i--) {
+              let card = cards[i];
+              if (checkOverlap(cx, cy, card.x, card.y, card.w, card.h)) {
+                card.isGrabbed = true;
+                cards.splice(i, 1);
+                cards.push(card);
 
+                if (card.placedSlotIndex !== null) {
+                  slots[card.placedSlotIndex].cardId = null;
+                  slots[card.placedSlotIndex].filledVal = null;
+                  card.placedSlotIndex = null;
+                }
+                break;
+              }
+            }
+          }
+        } else {
+          // ถ้าปล่อยจีบนิ้ว
+          cards.forEach(card => {
+            if (card.isGrabbed) {
+              card.isGrabbed = false;
+              let placed = false;
+              slots.forEach((slot, sIdx) => {
+                let cardCenterX = card.x + card.w/2;
+                let cardCenterY = card.y + card.h/2;
+                
+                // ตรวจจับระยะดูด (Snap distance = 60px) เมื่อปล่อยมือใกล้ช่อง
+                let distToSlot = Math.hypot(cardCenterX - (slot.x + slot.w/2), cardCenterY - (slot.y + slot.h/2));
+                if (!placed && slot.cardId === null && distToSlot < 60) {
+                  slot.cardId = card.id;
+                  slot.filledVal = card.value;
+                  card.placedSlotIndex = sIdx;
+                  card.x = slot.x + (slot.w - card.w) / 2;
+                  card.y = slot.y + (slot.h - card.h) / 2;
+                  placed = true;
+                }
+              });
+
+              if (!placed && card.placedSlotIndex === null) {
+                card.x = card.initX;
+                card.y = card.initY;
+              }
+            }
+          });
+        }
+
+        // อัปเดตพิกัดและการวาดการ์ด
+        cards.forEach(card => {
           if (card.isGrabbed) {
             card.x = cx - card.w / 2;
             card.y = cy - card.h / 2;
+
+            // ระบบแม่เหล็กดูดอัตโนมัติตอนลากผ่านเข้าใกล้ช่อง (Magnetic Snap System)
+            slots.forEach((slot, sIdx) => {
+              if (slot.cardId === null) {
+                let cardCenterX = card.x + card.w/2;
+                let cardCenterY = card.y + card.h/2;
+                let slotCenterX = slot.x + slot.w/2;
+                let slotCenterY = slot.y + slot.h/2;
+                let dist = Math.hypot(cardCenterX - slotCenterX, cardCenterY - slotCenterY);
+                
+                // หากลากเข้าใกล้ช่องในระยะ 50px ป้ายจะดูดเข้ากึ่งกลางช่องทันที
+                if (dist < 50) {
+                  card.x = slot.x + (slot.w - card.w) / 2;
+                  card.y = slot.y + (slot.h - card.h) / 2;
+                }
+              }
+            });
           }
-
-          slots.forEach(slot => {
-            if (checkOverlap(card.x + card.w/2, card.y + card.h/2, slot.x, slot.y, slot.w, slot.h)) {
-              slot.filledVal = card.value;
-            }
-          });
-
-          drawButton(card.value.toString(), card.x, card.y, card.w, card.h, "#FFC864");
+          drawButton(card.value.toString(), card.x, card.y, card.w, card.h, card.isGrabbed ? "#FF9600" : "#FFC864");
         });
 
         let currentSeq = slots.map(s => s.filledVal);
@@ -294,30 +362,61 @@
           drawButton(val.toString(), x, y, 90, 85, "#C8FFC8");
         });
 
+        if (isPinching) {
+          let grabbedTag = tags.find(t => t.isGrabbed);
+          if (!grabbedTag) {
+            for (let i = tags.length - 1; i >= 0; i--) {
+              let tag = tags[i];
+              if (!tag.isPlaced && checkOverlap(cx, cy, tag.x, tag.y, tag.w, tag.h)) {
+                tag.isGrabbed = true;
+                tags.splice(i, 1);
+                tags.push(tag);
+                break;
+              }
+            }
+          }
+        } else {
+          tags.forEach(tag => {
+            if (tag.isGrabbed) {
+              tag.isGrabbed = false;
+              let placed = false;
+              dataSorted.forEach((val, i) => {
+                let tx = 65 + i * 105, ty = 380;
+                let distToCard = Math.hypot((tag.x + tag.w/2) - (tx + 45), (tag.y + tag.h/2) - (ty + 42.5));
+                if (!placed && distToCard < 65) {
+                  if (tag.targetVal === val) {
+                    tag.isPlaced = true;
+                    tag.x = tx;
+                    tag.y = ty - 55;
+                    score += 100;
+                    placed = true;
+                  }
+                }
+              });
+              if (!placed) {
+                tag.x = tag.initX;
+                tag.y = tag.initY;
+              }
+            }
+          });
+        }
+
         let correctCount = 0;
         tags.forEach(tag => {
-          if (!tag.isPlaced) {
-            if (isPinching && checkOverlap(cx, cy, tag.x, tag.y, tag.w, tag.h)) tag.isGrabbed = true;
-            if (!isPinching) tag.isGrabbed = false;
+          if (tag.isGrabbed) {
+            tag.x = cx - tag.w / 2;
+            tag.y = cy - tag.h / 2;
 
-            if (tag.isGrabbed) {
-              tag.x = cx - tag.w / 2;
-              tag.y = cy - tag.h / 2;
-            }
-
+            // ระบบดูดแม่เหล็กสำหรับป้าย Min, Q1..Max ในด่าน 2
             dataSorted.forEach((val, i) => {
               let tx = 65 + i * 105, ty = 380;
-              if (checkOverlap(tag.x + 40, tag.y + 25, tx, ty, 90, 85)) {
-                if (tag.targetVal === val) {
-                  tag.isPlaced = true;
-                  tag.x = tx;
-                  tag.y = ty - 55;
-                  score += 100;
-                }
+              let dist = Math.hypot((tag.x + tag.w/2) - (tx + 45), (tag.y + tag.h/2) - (ty - 12.5));
+              if (dist < 50) {
+                tag.x = tx;
+                tag.y = ty - 55;
               }
             });
           }
-
           if (tag.isPlaced) correctCount++;
           drawButton(tag.name, tag.x, tag.y, tag.w, tag.h, tag.isPlaced ? "#64FF64" : "#FF9696");
         });
