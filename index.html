@@ -46,7 +46,7 @@
     }
   </style>
 
-  <!-- MediaPipe Scripts -->
+  <!-- MediaPipe Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
@@ -74,15 +74,144 @@
     let startTime = Date.now(), timeLimit = 120;
     let dataRaw = [], dataSorted = [], minVal, q1Val, q2Val, q3Val, maxVal;
     let cards = [], slots = [], tags = [];
-    let lastClickTime = 0;
     let quizOptions = null;
+    let floatingScores = [];
+
+    let checkmark = { x: 100, y: 350, initX: 100, initY: 350, w: 75, h: 75, isGrabbed: false };
+
+    // ==============================================
+    // 🎵 ระบบเสียงดนตรีเร้าใจแบบ EDM รถบั๊ม
+    // ==============================================
+    let audioCtx = null;
+    let bgmInterval = null;
+    let isAudioStarted = false;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      if (!isAudioStarted) {
+        isAudioStarted = true;
+        startBumpMusic();
+      }
+    }
+
+    function playSynthNote(freq, type, duration, vol=0.1) {
+      if (!audioCtx) return;
+      try {
+        let osc = audioCtx.createOscillator();
+        let gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch(e){}
+    }
+
+    function playKick() {
+      if (!audioCtx) return;
+      try {
+        let osc = audioCtx.createOscillator();
+        let gain = audioCtx.createGain();
+        osc.frequency.setValueAtTime(130, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.15);
+      } catch(e){}
+    }
+
+    function playSuccessSFX() {
+      playSynthNote(523.25, "sine", 0.1, 0.2);
+      setTimeout(() => playSynthNote(659.25, "sine", 0.1, 0.2), 80);
+      setTimeout(() => playSynthNote(783.99, "sine", 0.2, 0.2), 160);
+    }
+
+    function playGrabSFX() {
+      playSynthNote(400, "square", 0.05, 0.05);
+    }
+
+    function startBumpMusic() {
+      const bassNotes = [130.81, 130.81, 155.56, 174.61, 130.81, 130.81, 196.00, 174.61];
+      const synthNotes = [261.63, 311.13, 349.23, 392.00];
+      let step = 0;
+
+      bgmInterval = setInterval(() => {
+        if (stage === 4) {
+          clearInterval(bgmInterval);
+          return;
+        }
+
+        if (step % 2 === 0) playKick();
+
+        let bassFreq = bassNotes[step % bassNotes.length];
+        playSynthNote(bassFreq / 2, "sawtooth", 0.12, 0.08);
+
+        if (step % 4 === 1 || step % 4 === 3) {
+          let leadFreq = synthNotes[(step * 3) % synthNotes.length];
+          playSynthNote(leadFreq, "square", 0.08, 0.03);
+        }
+
+        step = (step + 1) % 16;
+      }, 140);
+    }
+
+    // ==============================================
+    // 🌟 ระบบ Floating Score (+คะแนน ลอย)
+    // ==============================================
+    function addFloatingScore(points, x, y) {
+      floatingScores.push({
+        text: `+${points}`,
+        x: x,
+        y: y,
+        alpha: 1.0,
+        scale: 1.2
+      });
+    }
+
+    function drawFloatingScores() {
+      for (let i = floatingScores.length - 1; i >= 0; i--) {
+        let fs = floatingScores[i];
+        ctx.save();
+        ctx.globalAlpha = fs.alpha;
+        ctx.font = `bold ${Math.round(36 * fs.scale)}px 'Tahoma', sans-serif`;
+        ctx.fillStyle = "#FFD700";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 4;
+        ctx.textAlign = "center";
+
+        ctx.strokeText(fs.text, fs.x, fs.y);
+        ctx.fillText(fs.text, fs.x, fs.y);
+        ctx.restore();
+
+        fs.y -= 2;
+        fs.alpha -= 0.02;
+        if (fs.scale > 1.0) fs.scale -= 0.01;
+
+        if (fs.alpha <= 0) {
+          floatingScores.splice(i, 1);
+        }
+      }
+    }
+
+    // ==============================================
 
     function generateCleanData() {
       const numDuplicates = Math.random() < 0.5 ? 2 : 3;
       const uniqueCount = NUM_DATA - numDuplicates;
       let baseNumbers = [];
       while(baseNumbers.length < uniqueCount) {
-        let r = Math.floor(Math.random() * 20) + 1;
+        let r = Math.floor(Math.random() * 18) + 2;
         if(!baseNumbers.includes(r)) baseNumbers.push(r);
       }
       let duplicates = [];
@@ -92,12 +221,6 @@
       dataRaw = baseNumbers.concat(duplicates);
       dataSorted = [...dataRaw].sort((a,b) => a - b);
       
-      // กำหนดตำแหน่งสถิติถูกต้องตาม N = 11
-      // index 0 -> ตัวที่ 1 (Min)
-      // index 2 -> ตัวที่ 3 (Q1)
-      // index 5 -> ตัวที่ 6 (Q2)
-      // index 8 -> ตัวที่ 9 (Q3)
-      // index 10 -> ตัวที่ 11 (Max)
       minVal = dataSorted[0];
       q1Val = dataSorted[2];
       q2Val = dataSorted[5];
@@ -106,40 +229,32 @@
 
       cards = [];
       let shuffled = [...dataRaw].sort(() => Math.random() - 0.5);
+      
+      // จัดการวางการ์ดให้อยู่ตรงกลางจอ (จัดเป็น 6 ใบแถวบน, 5 ใบแถวล่าง)
+      const cardW = 90, cardH = 85, gapX = 25, gapY = 20;
       shuffled.forEach((val, i) => {
-        let startX = 60 + (i % 6) * 110;
-        let startY = 100 + Math.floor(i / 6) * 105;
+        let row = i < 6 ? 0 : 1;
+        let col = i < 6 ? i : i - 6;
+        let countInRow = row === 0 ? 6 : 5;
+        let totalRowW = countInRow * cardW + (countInRow - 1) * gapX;
+        let startX = (1280 - totalRowW) / 2 + col * (cardW + gapX);
+        let startY = 150 + row * (cardH + gapY);
+
         cards.push({ 
-          id: i,
-          value: val, 
-          x: startX, 
-          y: startY, 
-          initX: startX,
-          initY: startY,
-          w: 90, 
-          h: 85, 
-          isGrabbed: false,
-          placedSlotIndex: null
+          id: i, value: val, x: startX, y: startY, initX: startX, initY: startY,
+          w: cardW, h: cardH, isGrabbed: false, placedSlotIndex: null
         });
       });
 
-      // ช่องวางด่านที่ 1 (#1 ซ้ายสุด -> #11 ขวาสุด)
       slots = [];
-      const slotWidth = 90;
-      const slotGap = 15;
-      const startX = 60;
+      const slotWidth = 90, slotGap = 15, startX = 60;
       for(let i=0; i<NUM_DATA; i++) {
         slots.push({ 
-          x: startX + i * (slotWidth + slotGap), 
-          y: 480, 
-          w: slotWidth, 
-          h: 95, 
-          cardId: null,
-          filledVal: null 
+          x: startX + i * (slotWidth + slotGap), y: 480, w: slotWidth, h: 95, 
+          cardId: null, filledVal: null 
         });
       }
 
-      // ป้ายตำแหน่งสำหรับด่านที่ 2 (ระบุ targetIndex ตรงจุด)
       tags = [
         { name: "Min", targetIndex: 0, x: 120, y: 150, initX: 120, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
         { name: "Q1",  targetIndex: 2, x: 340, y: 150, initX: 340, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
@@ -151,25 +266,25 @@
 
     generateCleanData();
 
-    function drawText(text, x, y, size=28, color="#FFFFFF", align="left") {
+    function drawText(text, x, y, size=32, color="#FFFFFF", align="left") {
       ctx.save();
-      ctx.font = `bold ${size}px Tahoma, sans-serif`;
+      ctx.font = `bold ${size}px 'Tahoma', sans-serif`;
       ctx.fillStyle = color;
       ctx.textAlign = align;
-      ctx.shadowColor = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur = 6;
+      ctx.shadowColor = "rgba(0,0,0,0.9)";
+      ctx.shadowBlur = 8;
       ctx.fillText(text, x, y);
       ctx.restore();
     }
 
-    function drawButton(text, x, y, w, h, bgColor="#E0E0E0", fontSize=28) {
+    function drawCard(text, x, y, w, h, bgColor="#FFD700", textColor="#000000", fontSize=36) {
       ctx.save();
       ctx.fillStyle = bgColor;
       ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = "#333333";
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 4;
       ctx.strokeRect(x, y, w, h);
-      drawText(text, x + w/2, y + h/2 + fontSize/3, fontSize, "#000000", "center");
+      drawText(text, x + w/2, y + h/2 + fontSize/3, fontSize, textColor, "center");
       ctx.restore();
     }
 
@@ -177,48 +292,88 @@
       return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
     }
 
-    function drawBoxplot(start_x=140, start_y=200, width=1000) {
-      ctx.fillStyle = "rgba(245, 245, 245, 0.95)";
-      ctx.fillRect(start_x - 30, start_y - 20, width + 60, 140);
-      ctx.strokeStyle = "#B0B0B0";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(start_x - 30, start_y - 20, width + 60, 140);
+    function drawBoxplot(start_x=200, start_y=110, width=880) {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+      ctx.fillRect(start_x - 40, start_y - 20, width + 80, 130);
+      ctx.strokeStyle = "#333333";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(start_x - 40, start_y - 20, width + 80, 130);
 
-      const lineY = start_y + 80;
+      const lineY = start_y + 70;
       ctx.beginPath();
       ctx.moveTo(start_x, lineY); ctx.lineTo(start_x + width, lineY);
-      ctx.strokeStyle = "#333333"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = "#000000"; ctx.lineWidth = 3; ctx.stroke();
 
       const valToX = v => start_x + ((v - 1) / 19.0) * width;
 
       for (let v = 1; v <= 20; v++) {
         let vx = valToX(v);
-        ctx.beginPath(); ctx.moveTo(vx, lineY - 5); ctx.lineTo(vx, lineY + 5);
-        ctx.strokeStyle = "#666666"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(vx, lineY - 6); ctx.lineTo(vx, lineY + 6);
+        ctx.strokeStyle = "#555555"; ctx.lineWidth = 2; ctx.stroke();
         if (v % 2 !== 0 || v === 20) drawText(v.toString(), vx, lineY + 30, 20, "#000000", "center");
       }
 
       let xMin = valToX(minVal), xQ1 = valToX(q1Val), xQ2 = valToX(q2Val), xQ3 = valToX(q3Val), xMax = valToX(maxVal);
-      let boxY = start_y + 10, boxH = 45;
+      let boxY = start_y + 10, boxH = 40;
 
       ctx.beginPath();
       ctx.moveTo(xMin, boxY + boxH/2); ctx.lineTo(xQ1, boxY + boxH/2);
       ctx.moveTo(xQ3, boxY + boxH/2); ctx.lineTo(xMax, boxY + boxH/2);
-      ctx.moveTo(xMin, boxY + 10); ctx.lineTo(xMin, boxY + boxH - 10);
-      ctx.moveTo(xMax, boxY + 10); ctx.lineTo(xMax, boxY + boxH - 10);
-      ctx.strokeStyle = "#C00000"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.moveTo(xMin, boxY + 5); ctx.lineTo(xMin, boxY + boxH - 5);
+      ctx.moveTo(xMax, boxY + 5); ctx.lineTo(xMax, boxY + boxH - 5);
+      ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
 
-      ctx.fillStyle = "#FFE699"; ctx.fillRect(xQ1, boxY, xQ3 - xQ1, boxH);
-      ctx.strokeStyle = "#0064C8"; ctx.lineWidth = 3; ctx.strokeRect(xQ1, boxY, xQ3 - xQ1, boxH);
+      ctx.fillStyle = "#FFE066"; ctx.fillRect(xQ1, boxY, xQ3 - xQ1, boxH);
+      ctx.strokeStyle = "#0055B8"; ctx.lineWidth = 4; ctx.strokeRect(xQ1, boxY, xQ3 - xQ1, boxH);
 
       ctx.beginPath(); ctx.moveTo(xQ2, boxY); ctx.lineTo(xQ2, boxY + boxH);
-      ctx.strokeStyle = "#FF0000"; ctx.lineWidth = 4; ctx.stroke();
+      ctx.strokeStyle = "#CC0000"; ctx.lineWidth = 5; ctx.stroke();
+    }
+
+    function generateQuizOptions() {
+      let opts = [];
+      let correctVal = 0;
+      if (quizStep === 1) {
+        correctVal = q2Val;
+        opts = [correctVal, correctVal + 2, Math.max(1, correctVal - 3), correctVal + 4];
+      } else if (quizStep === 2) {
+        correctVal = maxVal - minVal;
+        opts = [correctVal, correctVal + 3, Math.max(1, correctVal - 2), correctVal + 5];
+      } else if (quizStep === 3) {
+        let spans = [
+          { name: `ช่วง ${minVal} ถึง ${q1Val}`, val: q1Val - minVal },
+          { name: `ช่วง ${q1Val} ถึง ${q2Val}`, val: q2Val - q1Val },
+          { name: `ช่วง ${q2Val} ถึง ${q3Val}`, val: q3Val - q2Val },
+          { name: `ช่วง ${q3Val} ถึง ${maxVal}`, val: maxVal - q3Val }
+        ];
+        spans.sort((a,b) => b.val - a.val);
+        return {
+          q: "ข้อที่ 3/3: ข้อมูลกว้างที่สุด / กระจายตัวมากที่สุด ในช่วงใด?",
+          choices: [
+            { text: `ก) ${spans[0].name}`, isCorrect: true },
+            { text: `ข) ${spans[1].name}`, isCorrect: false },
+            { text: `ค) ${spans[2].name}`, isCorrect: false },
+            { text: `ง) ${spans[3].name}`, isCorrect: false }
+          ].sort(() => Math.random() - 0.5)
+        };
+      }
+
+      opts = Array.from(new Set(opts)).slice(0, 4);
+      while(opts.length < 4) opts.push(correctVal + opts.length + 1);
+      opts.sort(() => Math.random() - 0.5);
+
+      const labels = ["ก", "ข", "ค", "ง"];
+      return {
+        q: quizStep === 1 ? "ข้อที่ 1/3: จากแผนภาพกล่อง ค่ามัธยฐาน (Q2) มีค่าเท่ากับเท่าใด?" : "ข้อที่ 2/3: ค่าพิสัย (ค่าสูงสุด - ค่าต่ำสุด) เท่ากับเท่าใด?",
+        choices: opts.map((v, i) => ({
+          text: `${labels[i]}) ${v}`,
+          isCorrect: v === correctVal
+        }))
+      };
     }
 
     function onResults(results) {
-      if (loadingText.style.display !== 'none') {
-        loadingText.style.display = 'none';
-      }
+      if (loadingText.style.display !== 'none') loadingText.style.display = 'none';
 
       ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -226,7 +381,6 @@
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-      
       ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.restore();
@@ -234,27 +388,25 @@
       cx = -1; cy = -1; isPinching = false;
 
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0];
-        const indexFinger = landmarks[8];
-        const thumb = landmarks[4];
+        initAudio();
 
-        cx = (1.0 - indexFinger.x) * canvas.width;
-        cy = indexFinger.y * canvas.height;
-        const tx = (1.0 - thumb.x) * canvas.width;
-        const ty = thumb.y * canvas.height;
+        const landmarks = results.multiHandLandmarks[0];
+        cx = (1.0 - landmarks[8].x) * canvas.width;
+        cy = landmarks[8].y * canvas.height;
+        let tx = (1.0 - landmarks[4].x) * canvas.width;
+        let ty = landmarks[4].y * canvas.height;
 
         let dist = Math.hypot(cx - tx, cy - ty);
-        let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed);
-        let threshold = currentlyHolding ? 75 : 45;
-
-        if (dist < threshold) isPinching = true;
+        let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed) || checkmark.isGrabbed;
+        if (dist < (currentlyHolding ? 75 : 45)) isPinching = true;
       }
 
       let elapsed = Math.floor((Date.now() - startTime) / 1000);
       let timeLeft = Math.max(0, timeLimit - elapsed);
 
       if (stage === 1) {
-        drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก (จากซ้ายไปขวา)`, 40, 50, 30);
+        // แก้ไขชื่อด่านเหลือเฉพาะ "ด่านที่ 1"
+        drawText(`ด่านที่ 1`, 40, 50, 32);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 50, 30, "#00FFFF");
 
         slots.forEach((s, i) => {
@@ -263,7 +415,7 @@
           ctx.strokeStyle = s.cardId !== null ? "#64FF64" : "#FFFFFF";
           ctx.lineWidth = 3;
           ctx.strokeRect(s.x, s.y, s.w, s.h);
-          drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 20, "#00FFCC", "center");
+          drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 22, "#00FFCC", "center");
         });
 
         if (isPinching) {
@@ -273,9 +425,8 @@
               let card = cards[i];
               if (checkOverlap(cx, cy, card.x, card.y, card.w, card.h)) {
                 card.isGrabbed = true;
-                cards.splice(i, 1);
-                cards.push(card);
-
+                playGrabSFX();
+                cards.splice(i, 1); cards.push(card);
                 if (card.placedSlotIndex !== null) {
                   slots[card.placedSlotIndex].cardId = null;
                   slots[card.placedSlotIndex].filledVal = null;
@@ -291,42 +442,34 @@
               card.isGrabbed = false;
               let placed = false;
               slots.forEach((slot, sIdx) => {
-                let cardCenterX = card.x + card.w/2;
-                let cardCenterY = card.y + card.h/2;
-                
-                let distToSlot = Math.hypot(cardCenterX - (slot.x + slot.w/2), cardCenterY - (slot.y + slot.h/2));
+                let distToSlot = Math.hypot((card.x + card.w/2) - (slot.x + slot.w/2), (card.y + card.h/2) - (slot.y + slot.h/2));
                 if (!placed && slot.cardId === null && distToSlot < 65) {
-                  slot.cardId = card.id;
-                  slot.filledVal = card.value;
+                  slot.cardId = card.id; slot.filledVal = card.value;
                   card.placedSlotIndex = sIdx;
                   card.x = slot.x + (slot.w - card.w) / 2;
                   card.y = slot.y + (slot.h - card.h) / 2;
                   placed = true;
                 }
               });
-
               if (!placed && card.placedSlotIndex === null) {
-                card.x = card.initX;
-                card.y = card.initY;
+                card.x = card.initX; card.y = card.initY;
               }
             }
           });
         }
 
         cards.forEach(card => {
-          if (card.isGrabbed) {
-            card.x = cx - card.w / 2;
-            card.y = cy - card.h / 2;
-          }
-          drawButton(card.value.toString(), card.x, card.y, card.w, card.h, card.isGrabbed ? "#FF9600" : "#FFC864");
+          if (card.isGrabbed) { card.x = cx - card.w / 2; card.y = cy - card.h / 2; }
+          drawCard(card.value.toString(), card.x, card.y, card.w, card.h, card.isGrabbed ? "#FF9600" : "#FFD700", "#000000", 38);
         });
 
         let currentSeq = slots.map(s => s.filledVal);
         if (!currentSeq.includes(null)) {
           if (JSON.stringify(currentSeq) === JSON.stringify(dataSorted)) {
-            score += 300 + (timeLeft * 10);
-            stage = 2;
-            startTime = Date.now();
+            let pts = 300 + (timeLeft * 10);
+            playSuccessSFX();
+            addFloatingScore(pts, 640, 420);
+            score += pts; stage = 2; startTime = Date.now();
           } else {
             drawText("เรียงลำดับไม่ถูกต้อง! ลองใหม่อีกครั้ง", 640, 670, 30, "#FF3333", "center");
           }
@@ -335,11 +478,10 @@
         drawText("ด่านที่ 2: ลากป้าย Min, Q1, Q2, Q3, Max ไปวางบนตำแหน่งตัวเลขให้ถูกต้อง", 40, 50, 26);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 50, 30, "#00FFFF");
 
-        // แสดงกล่องตัวเลขเรียง 1-11
         dataSorted.forEach((val, i) => {
           let x = 60 + i * 105, y = 420;
-          drawButton(val.toString(), x, y, 90, 85, "#C8FFC8");
-          drawText(`#${i+1}`, x + 45, y + 115, 18, "#00FFCC", "center");
+          drawCard(val.toString(), x, y, 90, 85, "#98FB98", "#000000", 36);
+          drawText(`#${i+1}`, x + 45, y + 115, 20, "#00FFCC", "center");
         });
 
         if (isPinching) {
@@ -349,8 +491,8 @@
               let tag = tags[i];
               if (!tag.isPlaced && checkOverlap(cx, cy, tag.x, tag.y, tag.w, tag.h)) {
                 tag.isGrabbed = true;
-                tags.splice(i, 1);
-                tags.push(tag);
+                playGrabSFX();
+                tags.splice(i, 1); tags.push(tag);
                 break;
               }
             }
@@ -359,24 +501,15 @@
           tags.forEach(tag => {
             if (tag.isGrabbed) {
               tag.isGrabbed = false;
-              let placed = false;
-              
-              // ตรวจสอบตำแหน่งที่ผู้เล่นนำไปวาง (อ้างอิงจาก targetIndex 0, 2, 5, 8, 10)
-              let targetX = 60 + tag.targetIndex * 105;
-              let targetY = 420;
+              let targetX = 60 + tag.targetIndex * 105, targetY = 420;
               let distToTarget = Math.hypot((tag.x + tag.w/2) - (targetX + 45), (tag.y + tag.h/2) - (targetY - 30));
-              
               if (distToTarget < 75) {
-                tag.isPlaced = true;
-                tag.x = targetX;
-                tag.y = targetY - 65; // วางลอยบนกล่องพอดี ไม่บังตัวเลข
+                tag.isPlaced = true; tag.x = targetX; tag.y = targetY - 65;
+                playSuccessSFX();
+                addFloatingScore(100, targetX + 45, targetY - 70);
                 score += 100;
-                placed = true;
-              }
-
-              if (!placed) {
-                tag.x = tag.initX;
-                tag.y = tag.initY;
+              } else {
+                tag.x = tag.initX; tag.y = tag.initY;
               }
             }
           });
@@ -384,92 +517,76 @@
 
         let correctCount = 0;
         tags.forEach(tag => {
-          if (tag.isGrabbed) {
-            tag.x = cx - tag.w / 2;
-            tag.y = cy - tag.h / 2;
-          }
+          if (tag.isGrabbed) { tag.x = cx - tag.w / 2; tag.y = cy - tag.h / 2; }
           if (tag.isPlaced) correctCount++;
-          drawButton(tag.name, tag.x, tag.y, tag.w, tag.h, tag.isPlaced ? "#64FF64" : "#FF9696");
+          drawCard(tag.name, tag.x, tag.y, tag.w, tag.h, tag.isPlaced ? "#64FF64" : "#FF9696", "#000000", 28);
         });
 
         if (correctCount === 5) {
-          score += (timeLeft * 10);
-          stage = 3; quizStep = 1; quizOptions = null;
+          score += (timeLeft * 10); stage = 3; quizStep = 1; quizOptions = generateQuizOptions();
         }
       } else if (stage === 3) {
-        drawText(`ด่านที่ 3: คำถามวิเคราะห์ข้อมูล (ข้อ ${quizStep}/3)`, 640, 50, 32, "#FFFFFF", "center");
-        drawText(`คะแนน: ${score}`, 1050, 50, 30, "#00FFFF");
+        drawText(`ด่านที่ 3: ตอบคำถามจากแผนภาพกล่อง (ข้อ ${quizStep}/3)`, 40, 45, 28, "#FFFFFF");
+        drawText(`คะแนน: ${score}`, 1050, 45, 30, "#00FFFF");
 
-        let now = Date.now();
-        let isClickable = (now - lastClickTime) > 1200;
-
-        if (quizStep === 1) {
-          if (!quizOptions) {
-            let correct = q2Val, wrong = q2Val + (Math.random() < 0.5 ? 2 : -2);
-            let side = Math.random() < 0.5 ? 'left' : 'right';
-            quizOptions = {
-              q: "ข้อที่ 1/3: ค่ามัธยฐาน (ค่ากลาง หรือ Q2) ของข้อมูลชุดนี้เท่ากับเท่าใด?",
-              cA: side === 'left' ? `ก) ${correct}` : `ก) ${wrong}`,
-              cB: side === 'left' ? `ข) ${wrong}` : `ข) ${correct}`,
-              isACorrect: side === 'left'
-            };
-          }
-        } else if (quizStep === 2) {
-          if (!quizOptions) {
-            let range = maxVal - minVal;
-            let correct = range, wrong = range + (Math.random() < 0.5 ? 2 : -2);
-            let side = Math.random() < 0.5 ? 'left' : 'right';
-            quizOptions = {
-              q: "ข้อที่ 2/3: ค่าพิสัย (ค่าสูงสุด - ค่าต่ำสุด) ของข้อมูลชุดนี้เท่ากับเท่าใด?",
-              cA: side === 'left' ? `ก) ${correct}` : `ก) ${wrong}`,
-              cB: side === 'left' ? `ข) ${wrong}` : `ข) ${correct}`,
-              isACorrect: side === 'left'
-            };
-          }
-        } else if (quizStep === 3) {
-          drawBoxplot();
-          if (!quizOptions) {
-            let isMaxDisp = Math.random() < 0.5;
-            let intervals = {
-              [`ช่วง ${minVal} ถึง ${q1Val}`]: q1Val - minVal,
-              [`ช่วง ${q1Val} ถึง ${q2Val}`]: q2Val - q1Val,
-              [`ช่วง ${q2Val} ถึง ${q3Val}`]: q3Val - q2Val,
-              [`ช่วง ${q3Val} ถึง ${maxVal}`]: maxVal - q3Val
-            };
-            let keys = Object.keys(intervals);
-            keys.sort((a,b) => isMaxDisp ? intervals[b] - intervals[a] : intervals[a] - intervals[b]);
-            let correct = keys[0], wrong = keys[1];
-            let side = Math.random() < 0.5 ? 'left' : 'right';
-            quizOptions = {
-              q: isMaxDisp ? "ข้อที่ 3/3: ข้อมูล \"กระจายตัวมากที่สุด\" (กว้างที่สุด) ในช่วงใด?" : "ข้อที่ 3/3: ข้อมูล \"กระจายตัวน้อยที่สุด\" (แคบที่สุด) ในช่วงใด?",
-              cA: side === 'left' ? `ก) ${correct}` : `ก) ${wrong}`,
-              cB: side === 'left' ? `ข) ${wrong}` : `ข) ${correct}`,
-              isACorrect: side === 'left'
-            };
-          }
-        }
+        drawBoxplot();
 
         if (quizOptions) {
-          drawText(quizOptions.q, 640, quizStep === 3 ? 120 : 160, 28, "#FFFF00", "center");
-          let btnY = quizStep === 3 ? 370 : 260;
-          let btnH = quizStep === 3 ? 150 : 180;
+          drawText(quizOptions.q, 640, 275, 26, "#FFFF00", "center");
 
-          drawButton(quizOptions.cA, 140, btnY, 460, btnH, "#FFC8C8", 30);
-          drawButton(quizOptions.cB, 680, btnY, 460, btnH, "#C8C8FF", 30);
+          let choiceBoxes = [
+            { x: 260, y: 320, w: 420, h: 75, choice: quizOptions.choices[0] },
+            { x: 720, y: 320, w: 420, h: 75, choice: quizOptions.choices[1] },
+            { x: 260, y: 420, w: 420, h: 75, choice: quizOptions.choices[2] },
+            { x: 720, y: 420, w: 420, h: 75, choice: quizOptions.choices[3] }
+          ];
 
-          if (isClickable && cx !== -1 && cy !== -1) {
-            if (checkOverlap(cx, cy, 140, btnY, 460, btnH)) {
-              if (quizOptions.isACorrect) score += 300;
-              quizStep++; quizOptions = null; lastClickTime = now;
-              if (quizStep > 3) stage = 4;
-            } else if (checkOverlap(cx, cy, 680, btnY, 460, btnH)) {
-              if (!quizOptions.isACorrect) score += 300;
-              quizStep++; quizOptions = null; lastClickTime = now;
-              if (quizStep > 3) stage = 4;
+          choiceBoxes.forEach(box => {
+            drawCard(box.choice.text, box.x, box.y, box.w, box.h, "#E6F2FF", "#000000", 26);
+          });
+
+          if (isPinching) {
+            if (!checkmark.isGrabbed && checkOverlap(cx, cy, checkmark.x, checkmark.y, checkmark.w, checkmark.h)) {
+              checkmark.isGrabbed = true;
+              playGrabSFX();
+            }
+          } else {
+            if (checkmark.isGrabbed) {
+              checkmark.isGrabbed = false;
+              let selected = choiceBoxes.find(b => checkOverlap(checkmark.x + checkmark.w/2, checkmark.y + checkmark.h/2, b.x, b.y, b.w, b.h));
+              if (selected) {
+                if (selected.choice.isCorrect) {
+                  score += 300;
+                  playSuccessSFX();
+                  addFloatingScore(300, selected.x + selected.w/2, selected.y + selected.h/2);
+                }
+                quizStep++;
+                if (quizStep <= 3) {
+                  quizOptions = generateQuizOptions();
+                } else {
+                  stage = 4;
+                }
+              }
+              checkmark.x = checkmark.initX; checkmark.y = checkmark.initY;
             }
           }
+
+          if (checkmark.isGrabbed) {
+            checkmark.x = cx - checkmark.w / 2;
+            checkmark.y = cy - checkmark.h / 2;
+          }
+
+          ctx.save();
+          ctx.fillStyle = "#00FF00";
+          ctx.fillRect(checkmark.x, checkmark.y, checkmark.w, checkmark.h);
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 4;
+          ctx.strokeRect(checkmark.x, checkmark.y, checkmark.w, checkmark.h);
+          drawText("✓", checkmark.x + checkmark.w/2, checkmark.y + checkmark.h/2 + 18, 52, "#000000", "center");
+          ctx.restore();
+
+          drawText("📌 ลากเครื่องหมายถูก ✓ ไปวางทับหน้ากล่องคำตอบที่ถูกต้อง", 640, 550, 24, "#E0E0E0", "center");
         }
-        drawText("ใช้นิ้วชี้แตะเลือกตัวเลือก ก) หรือ ข) บนหน้าจอ", 640, 650, 26, "#E0E0E0", "center");
       } else if (stage === 4) {
         ctx.fillStyle = "rgba(0,0,0,0.85)";
         ctx.fillRect(200, 150, 880, 420);
@@ -477,10 +594,12 @@
         ctx.lineWidth = 4;
         ctx.strokeRect(200, 150, 880, 420);
 
-        drawText("🎉 ตอบคำถามครบทุกข้อแล้ว!", 640, 240, 44, "#00FF00", "center");
+        drawText("🎉 เก่งมาก! ตอบคำถามครบทุกข้อแล้ว", 640, 240, 40, "#00FF00", "center");
         drawText(`คะแนนรวมทั้งหมด: ${score}`, 640, 360, 38, "#FFFFFF", "center");
-        drawText("รีเฟรชหน้าเว็บ (F5) เพื่อเริ่มเล่นใหม่อีกครั้ง", 640, 460, 26, "#AAAAAA", "center");
+        drawText("กด F5 เพื่อเริ่มเล่นใหม่อีกครั้ง", 640, 460, 26, "#AAAAAA", "center");
       }
+
+      drawFloatingScores();
 
       if (cx !== -1 && cy !== -1) {
         ctx.beginPath();
@@ -496,30 +615,15 @@
     async function initSystem() {
       try {
         loadingText.innerText = "กำลังเริ่มต้นระบบตรวจจับมือ MediaPipe...";
-
-        hands = new Hands({
-          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-        });
-
-        hands.setOptions({
-          maxNumHands: 1,
-          modelComplexity: 1,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5
-        });
-
+        hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
         hands.onResults(onResults);
 
         loadingText.innerText = "กำลังเชื่อมต่อกับกล้องเว็บแคม...";
-
         camera = new Camera(video, {
-          onFrame: async () => {
-            await hands.send({ image: video });
-          },
-          width: 1280,
-          height: 720
+          onFrame: async () => { await hands.send({ image: video }); },
+          width: 1280, height: 720
         });
-
         await camera.start();
       } catch (err) {
         console.error("Init Error:", err);
