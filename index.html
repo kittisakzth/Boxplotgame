@@ -42,18 +42,33 @@
       text-align: center;
       z-index: 10;
       line-height: 1.6;
+      width: 80%;
     }
   </style>
-  <script type="module">
-    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.js";
 
+  <!-- โหลด MediaPipe ผ่าน Script Tag มาตรฐานเพื่อป้องกันปัญหา ES Module CORS -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+</head>
+<body>
+
+  <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
+  <div id="game-container">
+    <div id="loading-text">กำลังเริ่มต้นระบบ...</div>
+    <video id="webcam" autoplay playsinline style="display:none;"></video>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+  </div>
+
+  <script>
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const loadingText = document.getElementById('loading-text');
 
-    let handLandmarker = null;
-    let lastVideoTime = -1;
+    let hands = null;
+    let camera = null;
+    let cx = -1, cy = -1, isPinching = false;
 
     // --- ข้อมูลและสถานะเกม ---
     const NUM_DATA = 11;
@@ -192,73 +207,30 @@
       ctx.strokeStyle = "#FF0000"; ctx.lineWidth = 4; ctx.stroke();
     }
 
-    async function initMediaPipe() {
-      try {
-        loadingText.innerText = "กำลังดาวน์โหลดระบบตรวจจับมือ (MediaPipe AI)...";
-        
-        // กำหนดตำแหน่งไฟล์ WASM ให้ตรงตามเวอร์ชันสถิต เพื่อป้องกันปัญหาการโหลดไฟล์ล้มเหลว
-        const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-        );
-        
-        handLandmarker = await HandLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numHands: 1
-        });
-        
-        loadingText.innerText = "กำลังขอสิทธิ์เข้าถึงกล้องเว็บแคม...";
-        startCamera();
-      } catch (err) {
-        console.error("MediaPipe Load Error:", err);
-        loadingText.innerHTML = "❌ เกิดข้อผิดพลาดในการโหลด AI โมเดล<br>กรุณาตรวจสอบอินเทอร์เน็ตแล้วกด F5 ลองใหม่อีกครั้ง";
+    function onResults(results) {
+      if (loadingText.style.display !== 'none') {
+        loadingText.style.display = 'none';
       }
-    }
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } 
-        });
-        video.srcObject = stream;
-        video.addEventListener('loadeddata', () => {
-          loadingText.style.display = 'none';
-          predictWebcam();
-        });
-      } catch (err) {
-        console.error("Camera Access Error:", err);
-        loadingText.innerHTML = "⚠️ ไม่สามารถเข้าถึงกล้องได้!<br>กรุณากดอนุญาตสิทธิ์การใช้กล้อง (Allow Camera) บนเบราว์เซอร์";
-      }
-    }
-
-    async function predictWebcam() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      let cx = -1, cy = -1, isPinching = false;
+      cx = -1; cy = -1; isPinching = false;
 
-      if (video.currentTime !== lastVideoTime && handLandmarker) {
-        lastVideoTime = video.currentTime;
-        const results = handLandmarker.detectForVideo(video, performance.now());
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        const indexFinger = landmarks[8];
+        const thumb = landmarks[4];
 
-        if (results.landmarks && results.landmarks.length > 0) {
-          const landmarks = results.landmarks[0];
-          const indexFinger = landmarks[8];
-          const thumb = landmarks[4];
+        cx = indexFinger.x * canvas.width;
+        cy = indexFinger.y * canvas.height;
+        const tx = thumb.x * canvas.width;
+        const ty = thumb.y * canvas.height;
 
-          cx = indexFinger.x * canvas.width;
-          cy = indexFinger.y * canvas.height;
-          const tx = thumb.x * canvas.width;
-          const ty = thumb.y * canvas.height;
+        let dist = Math.hypot(cx - tx, cy - ty);
+        let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed);
+        let threshold = currentlyHolding ? 75 : 45;
 
-          let dist = Math.hypot(cx - tx, cy - ty);
-          let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed);
-          let threshold = currentlyHolding ? 75 : 45;
-
-          if (dist < threshold) isPinching = true;
-        }
+        if (dist < threshold) isPinching = true;
       }
 
       let elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -521,21 +493,43 @@
         ctx.strokeStyle = "#FFFFFF";
         ctx.stroke();
       }
-
-      requestAnimationFrame(predictWebcam);
     }
 
-    initMediaPipe();
+    async function initSystem() {
+      try {
+        loadingText.innerText = "กำลังเริ่มต้นระบบตรวจจับมือ MediaPipe...";
+
+        hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+          maxNumHands: 1,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        loadingText.innerText = "กำลังเชื่อมต่อกับกล้องเว็บแคม...";
+
+        camera = new Camera(video, {
+          onFrame: async () => {
+            await hands.send({ image: video });
+          },
+          width: 1280,
+          height: 720
+        });
+
+        await camera.start();
+      } catch (err) {
+        console.error("Init Error:", err);
+        loadingText.innerHTML = `❌ เกิดข้อผิดพลาด: ${err.message || "ไม่สามารถโหลดระบบได้"}<br>กรุณาตรวจสอบว่ายินยอมให้ใช้งานกล้องแล้วรีเฟรชอีกครั้ง`;
+      }
+    }
+
+    window.addEventListener('load', initSystem);
   </script>
-</head>
-<body>
-
-  <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
-  <div id="game-container">
-    <div id="loading-text">กำลังเริ่มต้นระบบ...</div>
-    <video id="webcam" autoplay playsinline></video>
-    <canvas id="gameCanvas" width="1280" height="720"></canvas>
-  </div>
-
 </body>
 </html>
