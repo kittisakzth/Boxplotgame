@@ -24,13 +24,13 @@
       border-radius: 12px;
       overflow: hidden;
     }
-    video, canvas {
+    video { display: none; }
+    canvas {
       position: absolute;
       top: 0;
       left: 0;
       width: 1280px;
       height: 720px;
-      transform: scaleX(-1);
     }
     #loading-text {
       position: absolute;
@@ -46,17 +46,16 @@
     }
   </style>
 
-  <!-- โหลด MediaPipe ผ่าน Script Tag มาตรฐานเพื่อป้องกันปัญหา ES Module CORS -->
+  <!-- MediaPipe Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-
 </head>
 <body>
 
   <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
   <div id="game-container">
     <div id="loading-text">กำลังเริ่มต้นระบบ...</div>
-    <video id="webcam" autoplay playsinline style="display:none;"></video>
+    <video id="webcam" autoplay playsinline></video>
     <canvas id="gameCanvas" width="1280" height="720"></canvas>
   </div>
 
@@ -70,7 +69,6 @@
     let camera = null;
     let cx = -1, cy = -1, isPinching = false;
 
-    // --- ข้อมูลและสถานะเกม ---
     const NUM_DATA = 11;
     let stage = 1, quizStep = 1, score = 0;
     let startTime = Date.now(), timeLimit = 120;
@@ -94,6 +92,12 @@
       dataRaw = baseNumbers.concat(duplicates);
       dataSorted = [...dataRaw].sort((a,b) => a - b);
       
+      // กำหนดตำแหน่งสถิติถูกต้องตาม N = 11
+      // index 0 -> ตัวที่ 1 (Min)
+      // index 2 -> ตัวที่ 3 (Q1)
+      // index 5 -> ตัวที่ 6 (Q2)
+      // index 8 -> ตัวที่ 9 (Q3)
+      // index 10 -> ตัวที่ 11 (Max)
       minVal = dataSorted[0];
       q1Val = dataSorted[2];
       q2Val = dataSorted[5];
@@ -103,8 +107,8 @@
       cards = [];
       let shuffled = [...dataRaw].sort(() => Math.random() - 0.5);
       shuffled.forEach((val, i) => {
-        let startX = 40 + (i % 6) * 105;
-        let startY = 90 + Math.floor(i / 6) * 100;
+        let startX = 60 + (i % 6) * 110;
+        let startY = 100 + Math.floor(i / 6) * 105;
         cards.push({ 
           id: i,
           value: val, 
@@ -112,22 +116,22 @@
           y: startY, 
           initX: startX,
           initY: startY,
-          w: 85, 
-          h: 80, 
+          w: 90, 
+          h: 85, 
           isGrabbed: false,
           placedSlotIndex: null
         });
       });
 
-      // ช่องวางด่านที่ 1 (เรียง #1 ถึง #11 ซ้ายไปขวา)
+      // ช่องวางด่านที่ 1 (#1 ซ้ายสุด -> #11 ขวาสุด)
       slots = [];
       const slotWidth = 90;
       const slotGap = 15;
-      const startX = 65;
+      const startX = 60;
       for(let i=0; i<NUM_DATA; i++) {
         slots.push({ 
           x: startX + i * (slotWidth + slotGap), 
-          y: 450, 
+          y: 480, 
           w: slotWidth, 
           h: 95, 
           cardId: null,
@@ -135,12 +139,13 @@
         });
       }
 
+      // ป้ายตำแหน่งสำหรับด่านที่ 2 (ระบุ targetIndex ตรงจุด)
       tags = [
-        { name: "Min", targetVal: minVal, x: 100, y: 100, initX: 100, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Q1", targetVal: q1Val, x: 220, y: 100, initX: 220, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Q2", targetVal: q2Val, x: 340, y: 100, initX: 340, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Q3", targetVal: q3Val, x: 460, y: 100, initX: 460, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false },
-        { name: "Max", targetVal: maxVal, x: 580, y: 100, initX: 580, initY: 100, w: 90, h: 50, isGrabbed: false, isPlaced: false }
+        { name: "Min", targetIndex: 0, x: 120, y: 150, initX: 120, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Q1",  targetIndex: 2, x: 340, y: 150, initX: 340, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Q2",  targetIndex: 5, x: 560, y: 150, initX: 560, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Q3",  targetIndex: 8, x: 780, y: 150, initX: 780, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Max", targetIndex: 10, x: 1000, y: 150, initX: 1000, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false }
       ].sort(() => Math.random() - 0.5);
     }
 
@@ -148,32 +153,35 @@
 
     function drawText(text, x, y, size=28, color="#FFFFFF", align="left") {
       ctx.save();
-      ctx.scale(-1, 1);
-      ctx.translate(-canvas.width, 0);
-      ctx.font = `${size}px Tahoma`;
+      ctx.font = `bold ${size}px Tahoma, sans-serif`;
       ctx.fillStyle = color;
       ctx.textAlign = align;
-      ctx.fillText(text, canvas.width - x, y);
+      ctx.shadowColor = "rgba(0,0,0,0.8)";
+      ctx.shadowBlur = 6;
+      ctx.fillText(text, x, y);
       ctx.restore();
     }
 
     function drawButton(text, x, y, w, h, bgColor="#E0E0E0", fontSize=28) {
+      ctx.save();
       ctx.fillStyle = bgColor;
       ctx.fillRect(x, y, w, h);
       ctx.strokeStyle = "#333333";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       ctx.strokeRect(x, y, w, h);
       drawText(text, x + w/2, y + h/2 + fontSize/3, fontSize, "#000000", "center");
+      ctx.restore();
     }
 
     function checkOverlap(px, py, rx, ry, rw, rh) {
       return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
     }
 
-    function drawBoxplot(start_x=140, start_y=190, width=1000) {
-      ctx.fillStyle = "#F5F5F5";
+    function drawBoxplot(start_x=140, start_y=200, width=1000) {
+      ctx.fillStyle = "rgba(245, 245, 245, 0.95)";
       ctx.fillRect(start_x - 30, start_y - 20, width + 60, 140);
       ctx.strokeStyle = "#B0B0B0";
+      ctx.lineWidth = 2;
       ctx.strokeRect(start_x - 30, start_y - 20, width + 60, 140);
 
       const lineY = start_y + 80;
@@ -212,7 +220,16 @@
         loadingText.style.display = 'none';
       }
 
+      ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
 
       cx = -1; cy = -1; isPinching = false;
 
@@ -221,9 +238,9 @@
         const indexFinger = landmarks[8];
         const thumb = landmarks[4];
 
-        cx = indexFinger.x * canvas.width;
+        cx = (1.0 - indexFinger.x) * canvas.width;
         cy = indexFinger.y * canvas.height;
-        const tx = thumb.x * canvas.width;
+        const tx = (1.0 - thumb.x) * canvas.width;
         const ty = thumb.y * canvas.height;
 
         let dist = Math.hypot(cx - tx, cy - ty);
@@ -237,14 +254,16 @@
       let timeLeft = Math.max(0, timeLimit - elapsed);
 
       if (stage === 1) {
-        drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก (จากซ้ายไปขวา)`, 40, 40, 32);
-        drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
+        drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก (จากซ้ายไปขวา)`, 40, 50, 30);
+        drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 50, 30, "#00FFFF");
 
         slots.forEach((s, i) => {
-          ctx.strokeStyle = s.cardId !== null ? "#64FF64" : "#B4B4B4";
-          ctx.lineWidth = 2;
+          ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+          ctx.fillRect(s.x, s.y, s.w, s.h);
+          ctx.strokeStyle = s.cardId !== null ? "#64FF64" : "#FFFFFF";
+          ctx.lineWidth = 3;
           ctx.strokeRect(s.x, s.y, s.w, s.h);
-          drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 18, "#CCCCCC", "center");
+          drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 20, "#00FFCC", "center");
         });
 
         if (isPinching) {
@@ -276,7 +295,7 @@
                 let cardCenterY = card.y + card.h/2;
                 
                 let distToSlot = Math.hypot(cardCenterX - (slot.x + slot.w/2), cardCenterY - (slot.y + slot.h/2));
-                if (!placed && slot.cardId === null && distToSlot < 60) {
+                if (!placed && slot.cardId === null && distToSlot < 65) {
                   slot.cardId = card.id;
                   slot.filledVal = card.value;
                   card.placedSlotIndex = sIdx;
@@ -298,21 +317,6 @@
           if (card.isGrabbed) {
             card.x = cx - card.w / 2;
             card.y = cy - card.h / 2;
-
-            slots.forEach((slot) => {
-              if (slot.cardId === null) {
-                let cardCenterX = card.x + card.w/2;
-                let cardCenterY = card.y + card.h/2;
-                let slotCenterX = slot.x + slot.w/2;
-                let slotCenterY = slot.y + slot.h/2;
-                let dist = Math.hypot(cardCenterX - slotCenterX, cardCenterY - slotCenterY);
-                
-                if (dist < 50) {
-                  card.x = slot.x + (slot.w - card.w) / 2;
-                  card.y = slot.y + (slot.h - card.h) / 2;
-                }
-              }
-            });
           }
           drawButton(card.value.toString(), card.x, card.y, card.w, card.h, card.isGrabbed ? "#FF9600" : "#FFC864");
         });
@@ -328,12 +332,14 @@
           }
         }
       } else if (stage === 2) {
-        drawText("ด่านที่ 2: ลากป้าย Min, Q1, Q2, Q3, Max ไปวางบนตัวเลขให้ถูกต้อง", 40, 40, 28);
-        drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
+        drawText("ด่านที่ 2: ลากป้าย Min, Q1, Q2, Q3, Max ไปวางบนตำแหน่งตัวเลขให้ถูกต้อง", 40, 50, 26);
+        drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 50, 30, "#00FFFF");
 
+        // แสดงกล่องตัวเลขเรียง 1-11
         dataSorted.forEach((val, i) => {
-          let x = 65 + i * 105, y = 380;
+          let x = 60 + i * 105, y = 420;
           drawButton(val.toString(), x, y, 90, 85, "#C8FFC8");
+          drawText(`#${i+1}`, x + 45, y + 115, 18, "#00FFCC", "center");
         });
 
         if (isPinching) {
@@ -354,19 +360,20 @@
             if (tag.isGrabbed) {
               tag.isGrabbed = false;
               let placed = false;
-              dataSorted.forEach((val, i) => {
-                let tx = 65 + i * 105, ty = 380;
-                let distToCard = Math.hypot((tag.x + tag.w/2) - (tx + 45), (tag.y + tag.h/2) - (ty + 42.5));
-                if (!placed && distToCard < 65) {
-                  if (tag.targetVal === val) {
-                    tag.isPlaced = true;
-                    tag.x = tx;
-                    tag.y = ty - 55;
-                    score += 100;
-                    placed = true;
-                  }
-                }
-              });
+              
+              // ตรวจสอบตำแหน่งที่ผู้เล่นนำไปวาง (อ้างอิงจาก targetIndex 0, 2, 5, 8, 10)
+              let targetX = 60 + tag.targetIndex * 105;
+              let targetY = 420;
+              let distToTarget = Math.hypot((tag.x + tag.w/2) - (targetX + 45), (tag.y + tag.h/2) - (targetY - 30));
+              
+              if (distToTarget < 75) {
+                tag.isPlaced = true;
+                tag.x = targetX;
+                tag.y = targetY - 65; // วางลอยบนกล่องพอดี ไม่บังตัวเลข
+                score += 100;
+                placed = true;
+              }
+
               if (!placed) {
                 tag.x = tag.initX;
                 tag.y = tag.initY;
@@ -380,15 +387,6 @@
           if (tag.isGrabbed) {
             tag.x = cx - tag.w / 2;
             tag.y = cy - tag.h / 2;
-
-            dataSorted.forEach((val, i) => {
-              let tx = 65 + i * 105, ty = 380;
-              let dist = Math.hypot((tag.x + tag.w/2) - (tx + 45), (tag.y + tag.h/2) - (ty - 12.5));
-              if (dist < 50) {
-                tag.x = tx;
-                tag.y = ty - 55;
-              }
-            });
           }
           if (tag.isPlaced) correctCount++;
           drawButton(tag.name, tag.x, tag.y, tag.w, tag.h, tag.isPlaced ? "#64FF64" : "#FF9696");
@@ -399,8 +397,8 @@
           stage = 3; quizStep = 1; quizOptions = null;
         }
       } else if (stage === 3) {
-        drawText(`ด่านที่ 3: คำถามวิเคราะห์ข้อมูล (ข้อ ${quizStep}/3)`, 40, 35, 30);
-        drawText(`คะแนน: ${score}`, 1050, 35, 30, "#00FFFF");
+        drawText(`ด่านที่ 3: คำถามวิเคราะห์ข้อมูล (ข้อ ${quizStep}/3)`, 640, 50, 32, "#FFFFFF", "center");
+        drawText(`คะแนน: ${score}`, 1050, 50, 30, "#00FFFF");
 
         let now = Date.now();
         let isClickable = (now - lastClickTime) > 1200;
@@ -452,26 +450,26 @@
         }
 
         if (quizOptions) {
-          drawText(quizOptions.q, 40, quizStep === 3 ? 90 : 100, 26, "#FFFF00");
-          let btnY = quizStep === 3 ? 360 : 250;
+          drawText(quizOptions.q, 640, quizStep === 3 ? 120 : 160, 28, "#FFFF00", "center");
+          let btnY = quizStep === 3 ? 370 : 260;
           let btnH = quizStep === 3 ? 150 : 180;
 
-          drawButton(quizOptions.cA, 120, btnY, 450, btnH, "#FFC8C8", 30);
-          drawButton(quizOptions.cB, 710, btnY, 450, btnH, "#C8C8FF", 30);
+          drawButton(quizOptions.cA, 140, btnY, 460, btnH, "#FFC8C8", 30);
+          drawButton(quizOptions.cB, 680, btnY, 460, btnH, "#C8C8FF", 30);
 
           if (isClickable && cx !== -1 && cy !== -1) {
-            if (checkOverlap(cx, cy, 120, btnY, 450, btnH)) {
+            if (checkOverlap(cx, cy, 140, btnY, 460, btnH)) {
               if (quizOptions.isACorrect) score += 300;
               quizStep++; quizOptions = null; lastClickTime = now;
               if (quizStep > 3) stage = 4;
-            } else if (checkOverlap(cx, cy, 710, btnY, 450, btnH)) {
+            } else if (checkOverlap(cx, cy, 680, btnY, 460, btnH)) {
               if (!quizOptions.isACorrect) score += 300;
               quizStep++; quizOptions = null; lastClickTime = now;
               if (quizStep > 3) stage = 4;
             }
           }
         }
-        drawText("ใช้นิ้วชี้แตะเลือกตัวเลือก ก) หรือ ข) บนหน้าจอ", 640, 630, 26, "#CCCCCC", "center");
+        drawText("ใช้นิ้วชี้แตะเลือกตัวเลือก ก) หรือ ข) บนหน้าจอ", 640, 650, 26, "#E0E0E0", "center");
       } else if (stage === 4) {
         ctx.fillStyle = "rgba(0,0,0,0.85)";
         ctx.fillRect(200, 150, 880, 420);
@@ -486,7 +484,7 @@
 
       if (cx !== -1 && cy !== -1) {
         ctx.beginPath();
-        ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
+        ctx.arc(cx, cy, 15, 0, 2 * Math.PI);
         ctx.fillStyle = isPinching ? "#00FF00" : "#FF0000";
         ctx.fill();
         ctx.lineWidth = 3;
