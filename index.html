@@ -32,14 +32,24 @@
       height: 720px;
       transform: scaleX(-1);
     }
+    #loading-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 24px;
+      color: #00FFCC;
+      text-align: center;
+      z-index: 10;
+    }
   </style>
-  <!-- ดึง MediaPipe Tasks Vision ES Module -->
   <script type="module">
-    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.js";
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js";
 
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
+    const loadingText = document.getElementById('loading-text');
 
     let handLandmarker = null;
     let lastVideoTime = -1;
@@ -159,7 +169,8 @@
 
     async function initMediaPipe() {
       try {
-        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+        loadingText.innerText = "กำลังดาวน์โหลดระบบตรวจจับมือ (MediaPipe)...";
+        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
         handLandmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
@@ -168,9 +179,10 @@
           runningMode: "VIDEO",
           numHands: 1
         });
+        loadingText.innerText = "กำลังเชื่อมต่อกับกล้องเว็บแคม...";
         startCamera();
       } catch (err) {
-        alert("ไม่สามารถโหลดระบบตรวจจับมือได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+        loadingText.innerHTML = "❌ เกิดข้อผิดพลาดในการโหลด AI โมเดล<br>กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองรีเฟรช";
       }
     }
 
@@ -178,9 +190,12 @@
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
         video.srcObject = stream;
-        video.addEventListener('loadeddata', predictWebcam);
+        video.addEventListener('loadeddata', () => {
+          loadingText.style.display = 'none';
+          predictWebcam();
+        });
       } catch (err) {
-        alert("กรุณากดอนุญาตให้สิทธิ์การใช้งานกล้องเว็บแคมบนเบราว์เซอร์");
+        loadingText.innerHTML = "⚠️ ไม่สามารถเข้าถึงกล้องได้!<br>กรุณากดอนุญาตสิทธิ์การใช้งานกล้อง (Allow Camera) บนเบราว์เซอร์";
       }
     }
 
@@ -394,6 +409,7 @@
 
   <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
   <div id="game-container">
+    <div id="loading-text">กำลังเริ่มต้นระบบ...</div>
     <video id="webcam" autoplay playsinline></video>
     <canvas id="gameCanvas" width="1280" height="720"></canvas>
   </div>
