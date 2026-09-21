@@ -33,17 +33,10 @@
       transform: scaleX(-1);
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
-</head>
-<body>
+  <!-- ดึง MediaPipe Tasks Vision ES Module -->
+  <script type="module">
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.js";
 
-  <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
-  <div id="game-container">
-    <video id="webcam" autoplay playsinline></video>
-    <canvas id="gameCanvas" width="1280" height="720"></canvas>
-  </div>
-
-  <script>
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -103,7 +96,6 @@
 
     generateCleanData();
 
-    // --- ระบบวาด UI (วาดตัวหนังสือทิศทางปกติ) ---
     function drawText(text, x, y, size=28, color="#FFFFFF", align="left") {
       ctx.save();
       ctx.scale(-1, 1);
@@ -165,27 +157,33 @@
       ctx.strokeStyle = "#FF0000"; ctx.lineWidth = 4; ctx.stroke();
     }
 
-    // --- 1. เริ่มต้น MediaPipe Tasks API ---
     async function initMediaPipe() {
-      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-          delegate: "GPU"
-        },
-        runningMode: "VIDEO",
-        numHands: 1
-      });
-      startCamera();
+      try {
+        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+        handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numHands: 1
+        });
+        startCamera();
+      } catch (err) {
+        alert("ไม่สามารถโหลดระบบตรวจจับมือได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+      }
     }
 
     async function startCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-      video.srcObject = stream;
-      video.addEventListener('loadeddata', predictWebcam);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        video.srcObject = stream;
+        video.addEventListener('loadeddata', predictWebcam);
+      } catch (err) {
+        alert("กรุณากดอนุญาตให้สิทธิ์การใช้งานกล้องเว็บแคมบนเบราว์เซอร์");
+      }
     }
 
-    // --- Loop หลักประมวลผลเกม ---
     async function predictWebcam() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -212,7 +210,6 @@
       let elapsed = Math.floor((Date.now() - startTime) / 1000);
       let timeLeft = Math.max(0, timeLimit - elapsed);
 
-      // --- 🎮 ด่านที่ 1: เรียงลำดับตัวเลข ---
       if (stage === 1) {
         drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก`, 40, 40, 32);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
@@ -250,10 +247,7 @@
             drawText("เรียงลำดับไม่ถูกต้อง! ลองใหม่อีกครั้ง", 450, 670, 30, "#FF3333");
           }
         }
-      }
-
-      // --- 🎮 ด่านที่ 2: ลากป้าย Min / Q1 / Q2 / Q3 / Max ---
-      else if (stage === 2) {
+      } else if (stage === 2) {
         drawText("ด่านที่ 2: ลากป้าย Min, Q1, Q2, Q3, Max ไปวางบนตัวเลขให้ถูกต้อง", 40, 40, 28);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
 
@@ -294,10 +288,7 @@
           score += (timeLeft * 10);
           stage = 3; quizStep = 1; quizOptions = null;
         }
-      }
-
-      // --- 🎮 ด่านที่ 3: คำถามวิเคราะห์ Box Plot ---
-      else if (stage === 3) {
+      } else if (stage === 3) {
         drawText(`ด่านที่ 3: คำถามวิเคราะห์ข้อมูล (ข้อ ${quizStep}/3)`, 40, 35, 30);
         drawText(`คะแนน: ${score}`, 1050, 35, 30, "#00FFFF");
 
@@ -371,10 +362,7 @@
           }
         }
         drawText("ใช้นิ้วชี้แตะเลือกตัวเลือก ก) หรือ ข) บนหน้าจอ", 440, 620, 26, "#CCCCCC");
-      }
-
-      // --- 🏆 ด่านที่ 4: สรุปคะแนน ---
-      else if (stage === 4) {
+      } else if (stage === 4) {
         ctx.fillStyle = "rgba(0,0,0,0.85)";
         ctx.fillRect(200, 150, 880, 420);
         ctx.strokeStyle = "#00FFFF";
@@ -386,7 +374,6 @@
         drawText("รีเฟรชหน้าเว็บ (F5) เพื่อเริ่มเล่นใหม่อีกครั้ง", 640, 460, 26, "#AAAAAA", "center");
       }
 
-      // --- วาดจุดเคอร์เซอร์มือ ---
       if (cx !== -1 && cy !== -1) {
         ctx.beginPath();
         ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
@@ -402,5 +389,14 @@
 
     initMediaPipe();
   </script>
+</head>
+<body>
+
+  <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
+  <div id="game-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+  </div>
+
 </body>
 </html>
