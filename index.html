@@ -72,16 +72,17 @@
     const NUM_DATA = 11;
     let stage = 1, quizStep = 1, score = 0;
     let startTime = Date.now(), timeLimit = 120;
+    let quizStartTime = Date.now();
     let dataRaw = [], dataSorted = [], minVal, q1Val, q2Val, q3Val, maxVal;
     let cards = [], slots = [], tags = [];
     let quizOptions = null;
-    let selectedChoiceIndex = null; // สำหรับจำว่าติ๊กช้อยส์ไหนอยู่
+    let selectedChoiceIndex = null;
     let floatingScores = [];
 
     let checkmark = { x: 80, y: 350, initX: 80, initY: 350, w: 70, h: 70, isGrabbed: false };
 
     // ==============================================
-    // 🔊 ระบบเสียงเอฟเฟกต์ (SFX เท่านั้น - ไม่มี BGM)
+    // 🔊 ระบบเสียงเอฟเฟกต์ (SFX)
     // ==============================================
     let audioCtx = null;
 
@@ -245,13 +246,18 @@
       return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
     }
 
+    // ==============================================
+    // 📊 วาดแผนภาพกล่อง พร้อมเส้นวิสเกอร์ (Whiskers)
+    // ==============================================
     function drawBoxplot(start_x=200, start_y=110, width=880) {
+      // พื้นหลังการ์ดแผนภาพ
       ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
       ctx.fillRect(start_x - 40, start_y - 20, width + 80, 130);
       ctx.strokeStyle = "#333333";
       ctx.lineWidth = 3;
       ctx.strokeRect(start_x - 40, start_y - 20, width + 80, 130);
 
+      // เส้นแกนตัวเลข (Number Line)
       const lineY = start_y + 70;
       ctx.beginPath();
       ctx.moveTo(start_x, lineY); ctx.lineTo(start_x + width, lineY);
@@ -259,6 +265,7 @@
 
       const valToX = v => start_x + ((v - 1) / 19.0) * width;
 
+      // ขีดสเกลตัวเลข 1-20
       for (let v = 1; v <= 20; v++) {
         let vx = valToX(v);
         ctx.beginPath(); ctx.moveTo(vx, lineY - 6); ctx.lineTo(vx, lineY + 6);
@@ -268,23 +275,32 @@
 
       let xMin = valToX(minVal), xQ1 = valToX(q1Val), xQ2 = valToX(q2Val), xQ3 = valToX(q3Val), xMax = valToX(maxVal);
       let boxY = start_y + 10, boxH = 40;
+      let midY = boxY + boxH / 2;
 
+      // 1. เส้นวิสเกอร์ (Whiskers: แนวนอนจาก Min->Q1 และ Q3->Max)
       ctx.beginPath();
-      ctx.moveTo(xMin, boxY + boxH/2); ctx.lineTo(xQ1, boxY + boxH/2);
-      ctx.moveTo(xQ3, boxY + boxH/2); ctx.lineTo(xMax, boxY + boxH/2);
-      ctx.moveTo(xMin, boxY + 5); ctx.lineTo(xMin, boxY + boxH - 5);
-      ctx.moveTo(xMax, boxY + 5); ctx.lineTo(xMax, boxY + boxH - 5);
+      ctx.moveTo(xMin, midY); ctx.lineTo(xQ1, midY);
+      ctx.moveTo(xQ3, midY); ctx.lineTo(xMax, midY);
       ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
 
+      // 2. เส้นแนวตั้งปลายวิสเกอร์ (Min Cap & Max Cap)
+      ctx.beginPath();
+      ctx.moveTo(xMin, boxY + 8); ctx.lineTo(xMin, boxY + boxH - 8);
+      ctx.moveTo(xMax, boxY + 8); ctx.lineTo(xMax, boxY + boxH - 8);
+      ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
+
+      // 3. ตัวกล่อง (Box: Q1 ถึง Q3)
       ctx.fillStyle = "#FFE066"; ctx.fillRect(xQ1, boxY, xQ3 - xQ1, boxH);
       ctx.strokeStyle = "#0055B8"; ctx.lineWidth = 4; ctx.strokeRect(xQ1, boxY, xQ3 - xQ1, boxH);
 
+      // 4. เส้นมัธยฐาน (Median Line: Q2)
       ctx.beginPath(); ctx.moveTo(xQ2, boxY); ctx.lineTo(xQ2, boxY + boxH);
       ctx.strokeStyle = "#CC0000"; ctx.lineWidth = 5; ctx.stroke();
     }
 
     function generateQuizOptions() {
-      selectedChoiceIndex = null; // รีเซ็ตการเลือก
+      selectedChoiceIndex = null;
+      quizStartTime = Date.now();
       let opts = [];
       let correctVal = 0;
       if (quizStep === 1) {
@@ -302,7 +318,7 @@
         ];
         spans.sort((a,b) => b.val - a.val);
         return {
-          q: "ข้อที่ 3/3: ข้อมูลมีการกระจายตัวมากที่สุด ในช่วงใด?", // ปรับแก้ไขตามแจ้ง
+          q: "ข้อที่ 3/3: ข้อมูลมีการกระจายตัวมากที่สุด ในช่วงใด?",
           choices: [
             { text: `ก) ${spans[0].name}`, isCorrect: true },
             { text: `ข) ${spans[1].name}`, isCorrect: false },
@@ -318,7 +334,7 @@
 
       const labels = ["ก", "ข", "ค", "ง"];
       return {
-        q: quizStep === 1 ? "ข้อที่ 1/3: จากแผนภาพกล่อง ค่ามัธยฐาน (Q2) มีค่าเท่ากับเท่าใด?" : "ข้อที่ 2/3: ค่าพิสัย เท่ากับเท่าใด?", // ตัดวงเล็บออกแล้ว
+        q: quizStep === 1 ? "ข้อที่ 1/3: จากแผนภาพกล่อง ค่ามัธยฐาน (Q2) มีค่าเท่ากับเท่าใด?" : "ข้อที่ 2/3: ค่าพิสัย เท่ากับเท่าใด?",
         choices: opts.map((v, i) => ({
           text: `${labels[i]}) ${v}`,
           isCorrect: v === correctVal
@@ -404,9 +420,11 @@
                   placed = true;
 
                   if (card.value === dataSorted[sIdx]) {
-                    score += 100;
+                    let speedBonus = timeLeft * 2;
+                    let gainedScore = 100 + speedBonus;
+                    score += gainedScore;
                     playSuccessSFX();
-                    addFloatingScore(100, slot.x + slot.w/2, slot.y - 20);
+                    addFloatingScore(gainedScore, slot.x + slot.w/2, slot.y - 20);
                   }
                 }
               });
@@ -465,9 +483,13 @@
               let distToTarget = Math.hypot((tag.x + tag.w/2) - (targetX + 45), (tag.y + tag.h/2) - (targetY - 30));
               if (distToTarget < 75) {
                 tag.isPlaced = true; tag.x = targetX; tag.y = targetY - 65;
+                
+                let speedBonus = timeLeft * 3;
+                let gainedScore = 100 + speedBonus;
+                score += gainedScore;
+                
                 playSuccessSFX();
-                addFloatingScore(100, targetX + 45, targetY - 80);
-                score += 100;
+                addFloatingScore(gainedScore, targetX + 45, targetY - 80);
               } else {
                 tag.x = tag.initX; tag.y = tag.initY;
               }
@@ -494,7 +516,6 @@
         if (quizOptions) {
           drawText(quizOptions.q, 640, 275, 26, "#FFFF00", "center");
 
-          // ตำแหน่งกล่องช้อยส์
           let choiceBoxes = [
             { id: 0, x: 260, y: 320, w: 400, h: 70, choice: quizOptions.choices[0] },
             { id: 1, x: 700, y: 320, w: 400, h: 70, choice: quizOptions.choices[1] },
@@ -502,15 +523,12 @@
             { id: 3, x: 700, y: 410, w: 400, h: 70, choice: quizOptions.choices[3] }
           ];
 
-          // ปุ่มยืนยันคำตอบ
           let confirmBtn = { x: 500, y: 500, w: 280, h: 65 };
 
-          // วาดตัวช้อยส์ + ช่องติ๊กหน้าข้อ
           choiceBoxes.forEach((box, idx) => {
             let isSelected = selectedChoiceIndex === idx;
             drawCard(box.choice.text, box.x, box.y, box.w, box.h, isSelected ? "#FFE066" : "#E6F2FF", "#000000", 24);
 
-            // วาดช่องสี่เหลี่ยมหน้าช้อยส์สำหรับวางเครื่องหมายถูก
             let checkBoxX = box.x + 12;
             let checkBoxY = box.y + 12;
             let checkBoxSize = 46;
@@ -522,14 +540,12 @@
             ctx.lineWidth = 3;
             ctx.strokeRect(checkBoxX, checkBoxY, checkBoxSize, checkBoxSize);
 
-            // ถ้าถูกเลือกอยู่ ให้แสดงเครื่องหมายถูกในช่อง
             if (isSelected) {
               drawText("✓", checkBoxX + checkBoxSize/2, checkBoxY + checkBoxSize/2 + 14, 40, "#00B300", "center");
             }
             ctx.restore();
           });
 
-          // วาดปุ่มยืนยันคำตอบ
           ctx.save();
           ctx.fillStyle = selectedChoiceIndex !== null ? "#00CC66" : "#777777";
           ctx.fillRect(confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
@@ -539,7 +555,6 @@
           drawText("ยืนยันคำตอบ", confirmBtn.x + confirmBtn.w/2, confirmBtn.y + confirmBtn.h/2 + 10, 26, "#FFFFFF", "center");
           ctx.restore();
 
-          // การจับวางเครื่องหมายถูก ✓
           if (isPinching) {
             if (!checkmark.isGrabbed && checkOverlap(cx, cy, checkmark.x, checkmark.y, checkmark.w, checkmark.h)) {
               checkmark.isGrabbed = true;
@@ -551,21 +566,23 @@
               let dropX = checkmark.x + checkmark.w/2;
               let dropY = checkmark.y + checkmark.h/2;
 
-              // เช็กว่าวางลงบนช้อยส์ข้อไหนหรือไม่
               let hoveredChoice = choiceBoxes.find(b => checkOverlap(dropX, dropY, b.x, b.y, b.w, b.h));
               if (hoveredChoice) {
                 selectedChoiceIndex = hoveredChoice.id;
                 playGrabSFX();
               }
 
-              // เช็กว่าวางลงบนปุ่มยืนยันคำตอบหรือไม่
               if (checkOverlap(dropX, dropY, confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h)) {
                 if (selectedChoiceIndex !== null) {
                   let chosen = choiceBoxes[selectedChoiceIndex].choice;
                   if (chosen.isCorrect) {
-                    score += 300;
+                    let answerTimeSec = (Date.now() - quizStartTime) / 1000;
+                    let speedBonus = Math.max(0, Math.floor((30 - answerTimeSec) * 20));
+                    let gainedScore = 300 + speedBonus;
+
+                    score += gainedScore;
                     playSuccessSFX();
-                    addFloatingScore(300, confirmBtn.x + confirmBtn.w/2, confirmBtn.y - 20);
+                    addFloatingScore(gainedScore, confirmBtn.x + confirmBtn.w/2, confirmBtn.y - 20);
                   }
                   quizStep++;
                   if (quizStep <= 3) {
@@ -585,7 +602,668 @@
             checkmark.y = cy - checkmark.h / 2;
           }
 
-          // วาดตัวเครื่องหมายถูก (ต้นฉบับฝั่งซ้าย)
+          ctx.save();
+          ctx.fillStyle = "#00FF00";
+          ctx.fillRect(checkmark.x, checkmark.y, checkmark.w, checkmark.h);
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 4;
+          ctx.strokeRect(checkmark.x, checkmark.y, checkmark.w, checkmark.h);
+          drawText("✓", checkmark.x + checkmark.w/2, checkmark.y + checkmark.h/2 + 18, 52, "#000000", "center");
+          ctx.restore();
+
+          drawText("📌 ลาก ✓ ไปวางในช่องหน้าข้อเพื่อเลือก แล้วลากไปวางปุ่ม 'ยืนยันคำตอบ'", 640, 595, 22, "#E0E0E0", "center");
+        }
+      } else if (stage === 4) {
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(200, 150, 880, 420);
+        ctx.strokeStyle = "#00FFFF";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(200, 150, 880, 420);
+
+        drawText("🎉 เก่งมาก! ตอบคำถามครบทุกข้อแล้ว", 640, 240, 40, "#00FF00", "center");
+        drawText(`คะแนนรวมทั้งหมด: ${score}`, 640, 360, 38, "#FFFFFF", "center");
+        drawText("กด F5 เพื่อเริ่มเล่นใหม่อีกครั้ง", 640, 460, 26, "#AAAAAA", "center");
+      }
+
+      drawFloatingScores();
+
+      if (cx !== -1 && cy !== -1) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 15, 0, 2 * Math.PI);
+        ctx.fillStyle = isPinching ? "#00FF00" : "#FF0000";
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#FFFFFF";
+        ctx.stroke();
+      }
+    }
+
+    async function initSystem() {
+      try {
+        loadingText.innerText = "กำลังเริ่มต้นระบบตรวจจับมือ MediaPipe...";
+        hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(onResults);
+
+        loadingText.innerText = "กำลังเชื่อมต่อกับกล้องเว็บแคม...";
+        camera = new Camera(video, {
+          onFrame: async () => { await hands.send({ image: video }); },
+          width: 1280, height: 720
+        });
+        await camera.start();
+      } catch (err) {
+        console.error("Init Error:", err);
+        loadingText.innerHTML = `❌ เกิดข้อผิดพลาด: ${err.message || "ไม่สามารถโหลดระบบได้"}<br>กรุณาตรวจสอบว่ายินยอมให้ใช้งานกล้องแล้วรีเฟรชอีกครั้ง`;
+      }
+    }
+
+    window.addEventListener('load', initSystem);
+  </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Box Plot Motion Challenge</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: #121212;
+      color: white;
+      font-family: 'Tahoma', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    #game-container {
+      position: relative;
+      width: 1280px;
+      height: 720px;
+      box-shadow: 0 0 20px rgba(0,255,200,0.3);
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    video { display: none; }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1280px;
+      height: 720px;
+    }
+    #loading-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 24px;
+      color: #00FFCC;
+      text-align: center;
+      z-index: 10;
+      line-height: 1.6;
+      width: 80%;
+    }
+  </style>
+
+  <!-- MediaPipe Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <h2>📊 Box Plot Motion Challenge (Web Edition)</h2>
+  <div id="game-container">
+    <div id="loading-text">กำลังเริ่มต้นระบบ...</div>
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const loadingText = document.getElementById('loading-text');
+
+    let hands = null;
+    let camera = null;
+    let cx = -1, cy = -1, isPinching = false;
+
+    const NUM_DATA = 11;
+    let stage = 1, quizStep = 1, score = 0;
+    let startTime = Date.now(), timeLimit = 120;
+    let quizStartTime = Date.now();
+    let dataRaw = [], dataSorted = [], minVal, q1Val, q2Val, q3Val, maxVal;
+    let cards = [], slots = [], tags = [];
+    let quizOptions = null;
+    let selectedChoiceIndex = null;
+    let floatingScores = [];
+
+    let checkmark = { x: 80, y: 350, initX: 80, initY: 350, w: 70, h: 70, isGrabbed: false };
+
+    // ==============================================
+    // 🔊 ระบบเสียงเอฟเฟกต์ (SFX)
+    // ==============================================
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playSynthNote(freq, type, duration, vol=0.15) {
+      if (!audioCtx) return;
+      try {
+        let osc = audioCtx.createOscillator();
+        let gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch(e){}
+    }
+
+    function playSuccessSFX() {
+      playSynthNote(523.25, "sine", 0.1, 0.2);
+      setTimeout(() => playSynthNote(659.25, "sine", 0.1, 0.2), 80);
+      setTimeout(() => playSynthNote(783.99, "sine", 0.2, 0.25), 160);
+    }
+
+    function playGrabSFX() {
+      playSynthNote(440, "triangle", 0.06, 0.1);
+    }
+
+    // ==============================================
+    // 🌟 ระบบ Floating Score (+คะแนน ลอย)
+    // ==============================================
+    function addFloatingScore(points, x, y) {
+      floatingScores.push({
+        text: `+${points}`,
+        x: x,
+        y: y,
+        alpha: 1.0,
+        scale: 1.3
+      });
+    }
+
+    function drawFloatingScores() {
+      for (let i = floatingScores.length - 1; i >= 0; i--) {
+        let fs = floatingScores[i];
+        ctx.save();
+        ctx.globalAlpha = fs.alpha;
+        ctx.font = `bold ${Math.round(38 * fs.scale)}px 'Tahoma', sans-serif`;
+        ctx.fillStyle = "#FFD700";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 5;
+        ctx.textAlign = "center";
+
+        ctx.strokeText(fs.text, fs.x, fs.y);
+        ctx.fillText(fs.text, fs.x, fs.y);
+        ctx.restore();
+
+        fs.y -= 2.5;
+        fs.alpha -= 0.02;
+        if (fs.scale > 1.0) fs.scale -= 0.01;
+
+        if (fs.alpha <= 0) {
+          floatingScores.splice(i, 1);
+        }
+      }
+    }
+
+    // ==============================================
+
+    function generateCleanData() {
+      const numDuplicates = Math.random() < 0.5 ? 2 : 3;
+      const uniqueCount = NUM_DATA - numDuplicates;
+      let baseNumbers = [];
+      while(baseNumbers.length < uniqueCount) {
+        let r = Math.floor(Math.random() * 18) + 2;
+        if(!baseNumbers.includes(r)) baseNumbers.push(r);
+      }
+      let duplicates = [];
+      for(let i=0; i<numDuplicates; i++) {
+        duplicates.push(baseNumbers[Math.floor(Math.random()*baseNumbers.length)]);
+      }
+      dataRaw = baseNumbers.concat(duplicates);
+      dataSorted = [...dataRaw].sort((a,b) => a - b);
+      
+      minVal = dataSorted[0];
+      q1Val = dataSorted[2];
+      q2Val = dataSorted[5];
+      q3Val = dataSorted[8];
+      maxVal = dataSorted[10];
+
+      cards = [];
+      let shuffled = [...dataRaw].sort(() => Math.random() - 0.5);
+      
+      const cardW = 90, cardH = 85, gapX = 25, gapY = 20;
+      shuffled.forEach((val, i) => {
+        let row = i < 6 ? 0 : 1;
+        let col = i < 6 ? i : i - 6;
+        let countInRow = row === 0 ? 6 : 5;
+        let totalRowW = countInRow * cardW + (countInRow - 1) * gapX;
+        let startX = (1280 - totalRowW) / 2 + col * (cardW + gapX);
+        let startY = 150 + row * (cardH + gapY);
+
+        cards.push({ 
+          id: i, value: val, x: startX, y: startY, initX: startX, initY: startY,
+          w: cardW, h: cardH, isGrabbed: false, placedSlotIndex: null
+        });
+      });
+
+      slots = [];
+      const slotWidth = 90, slotGap = 15, startX = 60;
+      for(let i=0; i<NUM_DATA; i++) {
+        slots.push({ 
+          x: startX + i * (slotWidth + slotGap), y: 480, w: slotWidth, h: 95, 
+          cardId: null, filledVal: null 
+        });
+      }
+
+      tags = [
+        { name: "Min", targetIndex: 0, x: 120, y: 150, initX: 120, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Q1",  targetIndex: 2, x: 340, y: 150, initX: 340, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Q2",  targetIndex: 5, x: 560, y: 150, initX: 560, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Q3",  targetIndex: 8, x: 780, y: 150, initX: 780, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false },
+        { name: "Max", targetIndex: 10, x: 1000, y: 150, initX: 1000, initY: 150, w: 90, h: 55, isGrabbed: false, isPlaced: false }
+      ].sort(() => Math.random() - 0.5);
+    }
+
+    generateCleanData();
+
+    function drawText(text, x, y, size=32, color="#FFFFFF", align="left") {
+      ctx.save();
+      ctx.font = `bold ${size}px 'Tahoma', sans-serif`;
+      ctx.fillStyle = color;
+      ctx.textAlign = align;
+      ctx.shadowColor = "rgba(0,0,0,0.9)";
+      ctx.shadowBlur = 8;
+      ctx.fillText(text, x, y);
+      ctx.restore();
+    }
+
+    function drawCard(text, x, y, w, h, bgColor="#FFD700", textColor="#000000", fontSize=36) {
+      ctx.save();
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, y, w, h);
+      drawText(text, x + w/2, y + h/2 + fontSize/3, fontSize, textColor, "center");
+      ctx.restore();
+    }
+
+    function checkOverlap(px, py, rx, ry, rw, rh) {
+      return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+    }
+
+    // ==============================================
+    // 📊 วาดแผนภาพกล่อง พร้อมเส้นวิสเกอร์ (Whiskers)
+    // ==============================================
+    function drawBoxplot(start_x=200, start_y=110, width=880) {
+      // พื้นหลังการ์ดแผนภาพ
+      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+      ctx.fillRect(start_x - 40, start_y - 20, width + 80, 130);
+      ctx.strokeStyle = "#333333";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(start_x - 40, start_y - 20, width + 80, 130);
+
+      // เส้นแกนตัวเลข (Number Line)
+      const lineY = start_y + 70;
+      ctx.beginPath();
+      ctx.moveTo(start_x, lineY); ctx.lineTo(start_x + width, lineY);
+      ctx.strokeStyle = "#000000"; ctx.lineWidth = 3; ctx.stroke();
+
+      const valToX = v => start_x + ((v - 1) / 19.0) * width;
+
+      // ขีดสเกลตัวเลข 1-20
+      for (let v = 1; v <= 20; v++) {
+        let vx = valToX(v);
+        ctx.beginPath(); ctx.moveTo(vx, lineY - 6); ctx.lineTo(vx, lineY + 6);
+        ctx.strokeStyle = "#555555"; ctx.lineWidth = 2; ctx.stroke();
+        if (v % 2 !== 0 || v === 20) drawText(v.toString(), vx, lineY + 30, 20, "#000000", "center");
+      }
+
+      let xMin = valToX(minVal), xQ1 = valToX(q1Val), xQ2 = valToX(q2Val), xQ3 = valToX(q3Val), xMax = valToX(maxVal);
+      let boxY = start_y + 10, boxH = 40;
+      let midY = boxY + boxH / 2;
+
+      // 1. เส้นวิสเกอร์ (Whiskers: แนวนอนจาก Min->Q1 และ Q3->Max)
+      ctx.beginPath();
+      ctx.moveTo(xMin, midY); ctx.lineTo(xQ1, midY);
+      ctx.moveTo(xQ3, midY); ctx.lineTo(xMax, midY);
+      ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
+
+      // 2. เส้นแนวตั้งปลายวิสเกอร์ (Min Cap & Max Cap)
+      ctx.beginPath();
+      ctx.moveTo(xMin, boxY + 8); ctx.lineTo(xMin, boxY + boxH - 8);
+      ctx.moveTo(xMax, boxY + 8); ctx.lineTo(xMax, boxY + boxH - 8);
+      ctx.strokeStyle = "#D00000"; ctx.lineWidth = 4; ctx.stroke();
+
+      // 3. ตัวกล่อง (Box: Q1 ถึง Q3)
+      ctx.fillStyle = "#FFE066"; ctx.fillRect(xQ1, boxY, xQ3 - xQ1, boxH);
+      ctx.strokeStyle = "#0055B8"; ctx.lineWidth = 4; ctx.strokeRect(xQ1, boxY, xQ3 - xQ1, boxH);
+
+      // 4. เส้นมัธยฐาน (Median Line: Q2)
+      ctx.beginPath(); ctx.moveTo(xQ2, boxY); ctx.lineTo(xQ2, boxY + boxH);
+      ctx.strokeStyle = "#CC0000"; ctx.lineWidth = 5; ctx.stroke();
+    }
+
+    function generateQuizOptions() {
+      selectedChoiceIndex = null;
+      quizStartTime = Date.now();
+      let opts = [];
+      let correctVal = 0;
+      if (quizStep === 1) {
+        correctVal = q2Val;
+        opts = [correctVal, correctVal + 2, Math.max(1, correctVal - 3), correctVal + 4];
+      } else if (quizStep === 2) {
+        correctVal = maxVal - minVal;
+        opts = [correctVal, correctVal + 3, Math.max(1, correctVal - 2), correctVal + 5];
+      } else if (quizStep === 3) {
+        let spans = [
+          { name: `ช่วง ${minVal} ถึง ${q1Val}`, val: q1Val - minVal },
+          { name: `ช่วง ${q1Val} ถึง ${q2Val}`, val: q2Val - q1Val },
+          { name: `ช่วง ${q2Val} ถึง ${q3Val}`, val: q3Val - q2Val },
+          { name: `ช่วง ${q3Val} ถึง ${maxVal}`, val: maxVal - q3Val }
+        ];
+        spans.sort((a,b) => b.val - a.val);
+        return {
+          q: "ข้อที่ 3/3: ข้อมูลมีการกระจายตัวมากที่สุด ในช่วงใด?",
+          choices: [
+            { text: `ก) ${spans[0].name}`, isCorrect: true },
+            { text: `ข) ${spans[1].name}`, isCorrect: false },
+            { text: `ค) ${spans[2].name}`, isCorrect: false },
+            { text: `ง) ${spans[3].name}`, isCorrect: false }
+          ].sort(() => Math.random() - 0.5)
+        };
+      }
+
+      opts = Array.from(new Set(opts)).slice(0, 4);
+      while(opts.length < 4) opts.push(correctVal + opts.length + 1);
+      opts.sort(() => Math.random() - 0.5);
+
+      const labels = ["ก", "ข", "ค", "ง"];
+      return {
+        q: quizStep === 1 ? "ข้อที่ 1/3: จากแผนภาพกล่อง ค่ามัธยฐาน (Q2) มีค่าเท่ากับเท่าใด?" : "ข้อที่ 2/3: ค่าพิสัย เท่ากับเท่าใด?",
+        choices: opts.map((v, i) => ({
+          text: `${labels[i]}) ${v}`,
+          isCorrect: v === correctVal
+        }))
+      };
+    }
+
+    function onResults(results) {
+      if (loadingText.style.display !== 'none') loadingText.style.display = 'none';
+
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      cx = -1; cy = -1; isPinching = false;
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        initAudio();
+
+        const landmarks = results.multiHandLandmarks[0];
+        cx = (1.0 - landmarks[8].x) * canvas.width;
+        cy = landmarks[8].y * canvas.height;
+        let tx = (1.0 - landmarks[4].x) * canvas.width;
+        let ty = landmarks[4].y * canvas.height;
+
+        let dist = Math.hypot(cx - tx, cy - ty);
+        let currentlyHolding = cards.some(c => c.isGrabbed) || tags.some(t => t.isGrabbed) || checkmark.isGrabbed;
+        if (dist < (currentlyHolding ? 75 : 45)) isPinching = true;
+      }
+
+      let elapsed = Math.floor((Date.now() - startTime) / 1000);
+      let timeLeft = Math.max(0, timeLimit - elapsed);
+
+      if (stage === 1) {
+        drawText(`ด่านที่ 1`, 40, 50, 32);
+        drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 50, 30, "#00FFFF");
+
+        slots.forEach((s, i) => {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+          ctx.fillRect(s.x, s.y, s.w, s.h);
+          ctx.strokeStyle = s.cardId !== null ? "#64FF64" : "#FFFFFF";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(s.x, s.y, s.w, s.h);
+          drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 22, "#00FFCC", "center");
+        });
+
+        if (isPinching) {
+          let grabbedCard = cards.find(c => c.isGrabbed);
+          if (!grabbedCard) {
+            for (let i = cards.length - 1; i >= 0; i--) {
+              let card = cards[i];
+              if (checkOverlap(cx, cy, card.x, card.y, card.w, card.h)) {
+                card.isGrabbed = true;
+                playGrabSFX();
+                cards.splice(i, 1); cards.push(card);
+                if (card.placedSlotIndex !== null) {
+                  slots[card.placedSlotIndex].cardId = null;
+                  slots[card.placedSlotIndex].filledVal = null;
+                  card.placedSlotIndex = null;
+                }
+                break;
+              }
+            }
+          }
+        } else {
+          cards.forEach(card => {
+            if (card.isGrabbed) {
+              card.isGrabbed = false;
+              let placed = false;
+              slots.forEach((slot, sIdx) => {
+                let distToSlot = Math.hypot((card.x + card.w/2) - (slot.x + slot.w/2), (card.y + card.h/2) - (slot.y + slot.h/2));
+                if (!placed && slot.cardId === null && distToSlot < 65) {
+                  slot.cardId = card.id; slot.filledVal = card.value;
+                  card.placedSlotIndex = sIdx;
+                  card.x = slot.x + (slot.w - card.w) / 2;
+                  card.y = slot.y + (slot.h - card.h) / 2;
+                  placed = true;
+
+                  if (card.value === dataSorted[sIdx]) {
+                    let speedBonus = timeLeft * 2;
+                    let gainedScore = 100 + speedBonus;
+                    score += gainedScore;
+                    playSuccessSFX();
+                    addFloatingScore(gainedScore, slot.x + slot.w/2, slot.y - 20);
+                  }
+                }
+              });
+              if (!placed && card.placedSlotIndex === null) {
+                card.x = card.initX; card.y = card.initY;
+              }
+            }
+          });
+        }
+
+        cards.forEach(card => {
+          if (card.isGrabbed) { card.x = cx - card.w / 2; card.y = cy - card.h / 2; }
+          drawCard(card.value.toString(), card.x, card.y, card.w, card.h, card.isGrabbed ? "#FF9600" : "#FFD700", "#000000", 38);
+        });
+
+        let currentSeq = slots.map(s => s.filledVal);
+        if (!currentSeq.includes(null)) {
+          if (JSON.stringify(currentSeq) === JSON.stringify(dataSorted)) {
+            let bonusPts = timeLeft * 10;
+            score += bonusPts;
+            playSuccessSFX();
+            if (bonusPts > 0) addFloatingScore(bonusPts, 640, 380);
+            stage = 2; startTime = Date.now();
+          } else {
+            drawText("เรียงลำดับไม่ถูกต้อง! ลองใหม่อีกครั้ง", 640, 670, 30, "#FF3333", "center");
+          }
+        }
+      } else if (stage === 2) {
+        drawText("ด่านที่ 2: ลากป้าย Min, Q1, Q2, Q3, Max ไปวางบนตำแหน่งตัวเลขให้ถูกต้อง", 40, 50, 26);
+        drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 50, 30, "#00FFFF");
+
+        dataSorted.forEach((val, i) => {
+          let x = 60 + i * 105, y = 420;
+          drawCard(val.toString(), x, y, 90, 85, "#98FB98", "#000000", 36);
+          drawText(`#${i+1}`, x + 45, y + 115, 20, "#00FFCC", "center");
+        });
+
+        if (isPinching) {
+          let grabbedTag = tags.find(t => t.isGrabbed);
+          if (!grabbedTag) {
+            for (let i = tags.length - 1; i >= 0; i--) {
+              let tag = tags[i];
+              if (!tag.isPlaced && checkOverlap(cx, cy, tag.x, tag.y, tag.w, tag.h)) {
+                tag.isGrabbed = true;
+                playGrabSFX();
+                tags.splice(i, 1); tags.push(tag);
+                break;
+              }
+            }
+          }
+        } else {
+          tags.forEach(tag => {
+            if (tag.isGrabbed) {
+              tag.isGrabbed = false;
+              let targetX = 60 + tag.targetIndex * 105, targetY = 420;
+              let distToTarget = Math.hypot((tag.x + tag.w/2) - (targetX + 45), (tag.y + tag.h/2) - (targetY - 30));
+              if (distToTarget < 75) {
+                tag.isPlaced = true; tag.x = targetX; tag.y = targetY - 65;
+                
+                let speedBonus = timeLeft * 3;
+                let gainedScore = 100 + speedBonus;
+                score += gainedScore;
+                
+                playSuccessSFX();
+                addFloatingScore(gainedScore, targetX + 45, targetY - 80);
+              } else {
+                tag.x = tag.initX; tag.y = tag.initY;
+              }
+            }
+          });
+        }
+
+        let correctCount = 0;
+        tags.forEach(tag => {
+          if (tag.isGrabbed) { tag.x = cx - tag.w / 2; tag.y = cy - tag.h / 2; }
+          if (tag.isPlaced) correctCount++;
+          drawCard(tag.name, tag.x, tag.y, tag.w, tag.h, tag.isPlaced ? "#64FF64" : "#FF9696", "#000000", 28);
+        });
+
+        if (correctCount === 5) {
+          score += (timeLeft * 10); stage = 3; quizStep = 1; quizOptions = generateQuizOptions();
+        }
+      } else if (stage === 3) {
+        drawText(`ด่านที่ 3: ตอบคำถามจากแผนภาพกล่อง (ข้อ ${quizStep}/3)`, 40, 45, 28, "#FFFFFF");
+        drawText(`คะแนน: ${score}`, 1050, 45, 30, "#00FFFF");
+
+        drawBoxplot();
+
+        if (quizOptions) {
+          drawText(quizOptions.q, 640, 275, 26, "#FFFF00", "center");
+
+          let choiceBoxes = [
+            { id: 0, x: 260, y: 320, w: 400, h: 70, choice: quizOptions.choices[0] },
+            { id: 1, x: 700, y: 320, w: 400, h: 70, choice: quizOptions.choices[1] },
+            { id: 2, x: 260, y: 410, w: 400, h: 70, choice: quizOptions.choices[2] },
+            { id: 3, x: 700, y: 410, w: 400, h: 70, choice: quizOptions.choices[3] }
+          ];
+
+          let confirmBtn = { x: 500, y: 500, w: 280, h: 65 };
+
+          choiceBoxes.forEach((box, idx) => {
+            let isSelected = selectedChoiceIndex === idx;
+            drawCard(box.choice.text, box.x, box.y, box.w, box.h, isSelected ? "#FFE066" : "#E6F2FF", "#000000", 24);
+
+            let checkBoxX = box.x + 12;
+            let checkBoxY = box.y + 12;
+            let checkBoxSize = 46;
+
+            ctx.save();
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(checkBoxX, checkBoxY, checkBoxSize, checkBoxSize);
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(checkBoxX, checkBoxY, checkBoxSize, checkBoxSize);
+
+            if (isSelected) {
+              drawText("✓", checkBoxX + checkBoxSize/2, checkBoxY + checkBoxSize/2 + 14, 40, "#00B300", "center");
+            }
+            ctx.restore();
+          });
+
+          ctx.save();
+          ctx.fillStyle = selectedChoiceIndex !== null ? "#00CC66" : "#777777";
+          ctx.fillRect(confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 4;
+          ctx.strokeRect(confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h);
+          drawText("ยืนยันคำตอบ", confirmBtn.x + confirmBtn.w/2, confirmBtn.y + confirmBtn.h/2 + 10, 26, "#FFFFFF", "center");
+          ctx.restore();
+
+          if (isPinching) {
+            if (!checkmark.isGrabbed && checkOverlap(cx, cy, checkmark.x, checkmark.y, checkmark.w, checkmark.h)) {
+              checkmark.isGrabbed = true;
+              playGrabSFX();
+            }
+          } else {
+            if (checkmark.isGrabbed) {
+              checkmark.isGrabbed = false;
+              let dropX = checkmark.x + checkmark.w/2;
+              let dropY = checkmark.y + checkmark.h/2;
+
+              let hoveredChoice = choiceBoxes.find(b => checkOverlap(dropX, dropY, b.x, b.y, b.w, b.h));
+              if (hoveredChoice) {
+                selectedChoiceIndex = hoveredChoice.id;
+                playGrabSFX();
+              }
+
+              if (checkOverlap(dropX, dropY, confirmBtn.x, confirmBtn.y, confirmBtn.w, confirmBtn.h)) {
+                if (selectedChoiceIndex !== null) {
+                  let chosen = choiceBoxes[selectedChoiceIndex].choice;
+                  if (chosen.isCorrect) {
+                    let answerTimeSec = (Date.now() - quizStartTime) / 1000;
+                    let speedBonus = Math.max(0, Math.floor((30 - answerTimeSec) * 20));
+                    let gainedScore = 300 + speedBonus;
+
+                    score += gainedScore;
+                    playSuccessSFX();
+                    addFloatingScore(gainedScore, confirmBtn.x + confirmBtn.w/2, confirmBtn.y - 20);
+                  }
+                  quizStep++;
+                  if (quizStep <= 3) {
+                    quizOptions = generateQuizOptions();
+                  } else {
+                    stage = 4;
+                  }
+                }
+              }
+
+              checkmark.x = checkmark.initX; checkmark.y = checkmark.initY;
+            }
+          }
+
+          if (checkmark.isGrabbed) {
+            checkmark.x = cx - checkmark.w / 2;
+            checkmark.y = cy - checkmark.h / 2;
+          }
+
           ctx.save();
           ctx.fillStyle = "#00FF00";
           ctx.fillRect(checkmark.x, checkmark.y, checkmark.w, checkmark.h);
