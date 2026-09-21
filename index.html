@@ -41,10 +41,11 @@
       color: #00FFCC;
       text-align: center;
       z-index: 10;
+      line-height: 1.6;
     }
   </style>
   <script type="module">
-    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js";
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.js";
 
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('gameCanvas');
@@ -103,7 +104,7 @@
         });
       });
 
-      // จัดวางช่องด่านที่ 1 (เรียงจากซ้ายไปขวา #1 ถึง #11)
+      // ช่องวางด่านที่ 1 (เรียง #1 ถึง #11 ซ้ายไปขวา)
       slots = [];
       const slotWidth = 90;
       const slotGap = 15;
@@ -130,7 +131,6 @@
 
     generateCleanData();
 
-    // ฟังก์ชันวาดข้อความพร้อมกลับทิศแกน X เพื่อให้อ่านออกตรงตามปกติในกล้อง
     function drawText(text, x, y, size=28, color="#FFFFFF", align="left") {
       ctx.save();
       ctx.scale(-1, 1);
@@ -194,8 +194,13 @@
 
     async function initMediaPipe() {
       try {
-        loadingText.innerText = "กำลังดาวน์โหลดระบบตรวจจับมือ (MediaPipe)...";
-        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js");
+        loadingText.innerText = "กำลังดาวน์โหลดระบบตรวจจับมือ (MediaPipe AI)...";
+        
+        // กำหนดตำแหน่งไฟล์ WASM ให้ตรงตามเวอร์ชันสถิต เพื่อป้องกันปัญหาการโหลดไฟล์ล้มเหลว
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+        );
+        
         handLandmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
@@ -204,23 +209,28 @@
           runningMode: "VIDEO",
           numHands: 1
         });
-        loadingText.innerText = "กำลังเชื่อมต่อกับกล้องเว็บแคม...";
+        
+        loadingText.innerText = "กำลังขอสิทธิ์เข้าถึงกล้องเว็บแคม...";
         startCamera();
       } catch (err) {
-        loadingText.innerHTML = "❌ เกิดข้อผิดพลาดในการโหลด AI โมเดล<br>กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองรีเฟรช";
+        console.error("MediaPipe Load Error:", err);
+        loadingText.innerHTML = "❌ เกิดข้อผิดพลาดในการโหลด AI โมเดล<br>กรุณาตรวจสอบอินเทอร์เน็ตแล้วกด F5 ลองใหม่อีกครั้ง";
       }
     }
 
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } 
+        });
         video.srcObject = stream;
         video.addEventListener('loadeddata', () => {
           loadingText.style.display = 'none';
           predictWebcam();
         });
       } catch (err) {
-        loadingText.innerHTML = "⚠️ ไม่สามารถเข้าถึงกล้องได้!<br>กรุณากดอนุญาตสิทธิ์การใช้งานกล้อง (Allow Camera) บนเบราว์เซอร์";
+        console.error("Camera Access Error:", err);
+        loadingText.innerHTML = "⚠️ ไม่สามารถเข้าถึงกล้องได้!<br>กรุณากดอนุญาตสิทธิ์การใช้กล้อง (Allow Camera) บนเบราว์เซอร์";
       }
     }
 
@@ -258,16 +268,13 @@
         drawText(`ด่านที่ 1: เรียงข้อมูลจากน้อยไปมาก (จากซ้ายไปขวา)`, 40, 40, 32);
         drawText(`เวลา: ${timeLeft}s | คะแนน: ${score}`, 950, 40, 32, "#00FFFF");
 
-        // วาดช่อง
         slots.forEach((s, i) => {
           ctx.strokeStyle = s.cardId !== null ? "#64FF64" : "#B4B4B4";
           ctx.lineWidth = 2;
           ctx.strokeRect(s.x, s.y, s.w, s.h);
-          // ปรับการเรียงตัวเลขของช่องตรงตามตำแหน่งซ้ายไปขวา (#1 ถึง #11)
           drawText(`#${i+1}`, s.x + s.w/2, s.y - 12, 18, "#CCCCCC", "center");
         });
 
-        // ควบคุมการจับลากการ์ด
         if (isPinching) {
           let grabbedCard = cards.find(c => c.isGrabbed);
           if (!grabbedCard) {
@@ -288,7 +295,6 @@
             }
           }
         } else {
-          // ถ้าปล่อยจีบนิ้ว
           cards.forEach(card => {
             if (card.isGrabbed) {
               card.isGrabbed = false;
@@ -297,7 +303,6 @@
                 let cardCenterX = card.x + card.w/2;
                 let cardCenterY = card.y + card.h/2;
                 
-                // ตรวจจับระยะดูด (Snap distance = 60px) เมื่อปล่อยมือใกล้ช่อง
                 let distToSlot = Math.hypot(cardCenterX - (slot.x + slot.w/2), cardCenterY - (slot.y + slot.h/2));
                 if (!placed && slot.cardId === null && distToSlot < 60) {
                   slot.cardId = card.id;
@@ -317,14 +322,12 @@
           });
         }
 
-        // อัปเดตพิกัดและการวาดการ์ด
         cards.forEach(card => {
           if (card.isGrabbed) {
             card.x = cx - card.w / 2;
             card.y = cy - card.h / 2;
 
-            // ระบบแม่เหล็กดูดอัตโนมัติตอนลากผ่านเข้าใกล้ช่อง (Magnetic Snap System)
-            slots.forEach((slot, sIdx) => {
+            slots.forEach((slot) => {
               if (slot.cardId === null) {
                 let cardCenterX = card.x + card.w/2;
                 let cardCenterY = card.y + card.h/2;
@@ -332,7 +335,6 @@
                 let slotCenterY = slot.y + slot.h/2;
                 let dist = Math.hypot(cardCenterX - slotCenterX, cardCenterY - slotCenterY);
                 
-                // หากลากเข้าใกล้ช่องในระยะ 50px ป้ายจะดูดเข้ากึ่งกลางช่องทันที
                 if (dist < 50) {
                   card.x = slot.x + (slot.w - card.w) / 2;
                   card.y = slot.y + (slot.h - card.h) / 2;
@@ -407,7 +409,6 @@
             tag.x = cx - tag.w / 2;
             tag.y = cy - tag.h / 2;
 
-            // ระบบดูดแม่เหล็กสำหรับป้าย Min, Q1..Max ในด่าน 2
             dataSorted.forEach((val, i) => {
               let tx = 65 + i * 105, ty = 380;
               let dist = Math.hypot((tag.x + tag.w/2) - (tx + 45), (tag.y + tag.h/2) - (ty - 12.5));
